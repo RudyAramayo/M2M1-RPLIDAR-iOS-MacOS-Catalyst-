@@ -2,7 +2,7 @@
 //  NWClientConnection.swift
 //
 //  Created by Rodolfo Aramayo on 4/2/22.
-//  Copyright © 2020 Apple, Inc. All rights reserved.
+//  Copyright © 2022 OrbitusRobotics. All rights reserved.
 //
 
 import Foundation

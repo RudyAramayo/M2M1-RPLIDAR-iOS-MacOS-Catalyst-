@@ -8,13 +8,16 @@
 
 /* Begin PBXBuildFile section */
 		D440478C27188C5E00DF41EF /* SlamwareSDK.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D440478B27188C5E00DF41EF /* SlamwareSDK.framework */; };
-		D45E1CE728014E6E002189C0 /* AutoNetClient in Resources */ = {isa = PBXBuildFile; fileRef = D45E1CE628014E6E002189C0 /* AutoNetClient */; };
 		D47643A5270D02300032A370 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47643A4270D02300032A370 /* AppDelegate.swift */; };
-		D47643A7270D02300032A370 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47643A6270D02300032A370 /* ViewController.swift */; };
+		D47643A7270D02300032A370 /* RPLidarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47643A6270D02300032A370 /* RPLidarViewController.swift */; };
 		D47643AA270D02300032A370 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = D47643A8270D02300032A370 /* Main.storyboard */; };
 		D47643AC270D02320032A370 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D47643AB270D02320032A370 /* Assets.xcassets */; };
 		D47643AF270D02320032A370 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = D47643AD270D02320032A370 /* LaunchScreen.storyboard */; };
 		D492738D27307B1C009E7F9C /* SlamwareSDK.framework in CopyFiles */ = {isa = PBXBuildFile; fileRef = D440478B27188C5E00DF41EF /* SlamwareSDK.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D4D15923280217D200AFFA1E /* AutoNetDataTransferProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15920280217D200AFFA1E /* AutoNetDataTransferProtocol.swift */; };
+		D4D15924280217D200AFFA1E /* AutoNetClientConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */; };
+		D4D15925280217D200AFFA1E /* AutoNetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15922280217D200AFFA1E /* AutoNetClient.swift */; };
+		D4D1592728021EB300AFFA1E /* RPLidarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D1592628021EB300AFFA1E /* RPLidarController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -32,14 +35,17 @@
 
 /* Begin PBXFileReference section */
 		D440478B27188C5E00DF41EF /* SlamwareSDK.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = SlamwareSDK.framework; sourceTree = "<group>"; };
-		D45E1CE628014E6E002189C0 /* AutoNetClient */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AutoNetClient; sourceTree = "<group>"; };
 		D47643A1270D02300032A370 /* RPLidar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RPLidar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D47643A4270D02300032A370 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		D47643A6270D02300032A370 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		D47643A6270D02300032A370 /* RPLidarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarViewController.swift; sourceTree = "<group>"; };
 		D47643A9270D02300032A370 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		D47643AB270D02320032A370 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D47643AE270D02320032A370 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		D47643B0270D02320032A370 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		D4D15920280217D200AFFA1E /* AutoNetDataTransferProtocol.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetDataTransferProtocol.swift; path = AutoNetClient/AutoNetDataTransferProtocol.swift; sourceTree = "<group>"; };
+		D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetClientConnection.swift; path = AutoNetClient/AutoNetClientConnection.swift; sourceTree = "<group>"; };
+		D4D15922280217D200AFFA1E /* AutoNetClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetClient.swift; path = AutoNetClient/AutoNetClient.swift; sourceTree = "<group>"; };
+		D4D1592628021EB300AFFA1E /* RPLidarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,8 +80,11 @@
 			isa = PBXGroup;
 			children = (
 				D47643A4270D02300032A370 /* AppDelegate.swift */,
-				D45E1CE628014E6E002189C0 /* AutoNetClient */,
-				D47643A6270D02300032A370 /* ViewController.swift */,
+				D47643A6270D02300032A370 /* RPLidarViewController.swift */,
+				D4D1592628021EB300AFFA1E /* RPLidarController.swift */,
+				D4D15922280217D200AFFA1E /* AutoNetClient.swift */,
+				D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */,
+				D4D15920280217D200AFFA1E /* AutoNetDataTransferProtocol.swift */,
 				D47643A8270D02300032A370 /* Main.storyboard */,
 				D47643AB270D02320032A370 /* Assets.xcassets */,
 				D47643AD270D02320032A370 /* LaunchScreen.storyboard */,
@@ -144,7 +153,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D45E1CE728014E6E002189C0 /* AutoNetClient in Resources */,
 				D47643AF270D02320032A370 /* LaunchScreen.storyboard in Resources */,
 				D47643AC270D02320032A370 /* Assets.xcassets in Resources */,
 				D47643AA270D02300032A370 /* Main.storyboard in Resources */,
@@ -158,8 +166,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D47643A7270D02300032A370 /* ViewController.swift in Sources */,
+				D4D15923280217D200AFFA1E /* AutoNetDataTransferProtocol.swift in Sources */,
+				D4D15925280217D200AFFA1E /* AutoNetClient.swift in Sources */,
+				D4D1592728021EB300AFFA1E /* RPLidarController.swift in Sources */,
+				D47643A7270D02300032A370 /* RPLidarViewController.swift in Sources */,
 				D47643A5270D02300032A370 /* AppDelegate.swift in Sources */,
+				D4D15924280217D200AFFA1E /* AutoNetClientConnection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -238,7 +250,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 12.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -295,7 +307,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 12.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -314,7 +326,7 @@
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/SlamwareSDK",
+					"$(PROJECT_DIR)/RPLidar",
 				);
 				INFOPLIST_FILE = RPLidar/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -338,7 +350,7 @@
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/SlamwareSDK",
+					"$(PROJECT_DIR)/RPLidar",
 				);
 				INFOPLIST_FILE = RPLidar/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

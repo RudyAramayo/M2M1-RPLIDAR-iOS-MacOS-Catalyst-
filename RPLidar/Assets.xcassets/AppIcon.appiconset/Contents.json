@@ -1,98 +1,116 @@
 {
   "images" : [
     {
+      "filename" : "RPLidarIcon-17.png",
       "idiom" : "iphone",
-      "size" : "20x20",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "20x20"
     },
     {
+      "filename" : "RPLidarIcon-16.png",
       "idiom" : "iphone",
-      "size" : "20x20",
-      "scale" : "3x"
+      "scale" : "3x",
+      "size" : "20x20"
     },
     {
+      "filename" : "RPLidarIcon-15.png",
       "idiom" : "iphone",
-      "size" : "29x29",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "29x29"
     },
     {
+      "filename" : "RPLidarIcon-14.png",
       "idiom" : "iphone",
-      "size" : "29x29",
-      "scale" : "3x"
+      "scale" : "3x",
+      "size" : "29x29"
     },
     {
+      "filename" : "RPLidarIcon-13.png",
       "idiom" : "iphone",
-      "size" : "40x40",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "40x40"
     },
     {
+      "filename" : "RPLidarIcon-12.png",
       "idiom" : "iphone",
-      "size" : "40x40",
-      "scale" : "3x"
+      "scale" : "3x",
+      "size" : "40x40"
     },
     {
+      "filename" : "RPLidarIcon-18.png",
       "idiom" : "iphone",
-      "size" : "60x60",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "60x60"
     },
     {
+      "filename" : "RPLidarIcon-8.png",
       "idiom" : "iphone",
-      "size" : "60x60",
-      "scale" : "3x"
+      "scale" : "3x",
+      "size" : "60x60"
     },
     {
+      "filename" : "RPLidarIcon-5.png",
       "idiom" : "ipad",
-      "size" : "20x20",
-      "scale" : "1x"
+      "scale" : "1x",
+      "size" : "20x20"
     },
     {
+      "filename" : "RPLidarIcon-19.png",
       "idiom" : "ipad",
-      "size" : "20x20",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "20x20"
     },
     {
+      "filename" : "RPLidarIcon-6.png",
       "idiom" : "ipad",
-      "size" : "29x29",
-      "scale" : "1x"
+      "scale" : "1x",
+      "size" : "29x29"
     },
     {
+      "filename" : "RPLidarIcon-7.png",
       "idiom" : "ipad",
-      "size" : "29x29",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "29x29"
     },
     {
+      "filename" : "RPLidarIcon-20.png",
       "idiom" : "ipad",
-      "size" : "40x40",
-      "scale" : "1x"
+      "scale" : "1x",
+      "size" : "40x40"
     },
     {
+      "filename" : "RPLidarIcon-9.png",
       "idiom" : "ipad",
-      "size" : "40x40",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "40x40"
     },
     {
+      "filename" : "RPLidarIcon-3.png",
       "idiom" : "ipad",
-      "size" : "76x76",
-      "scale" : "1x"
+      "scale" : "1x",
+      "size" : "76x76"
     },
     {
+      "filename" : "RPLidarIcon-2.png",
       "idiom" : "ipad",
-      "size" : "76x76",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "76x76"
     },
     {
+      "filename" : "RPLidarIcon-1.png",
       "idiom" : "ipad",
-      "size" : "83.5x83.5",
-      "scale" : "2x"
+      "scale" : "2x",
+      "size" : "83.5x83.5"
     },
     {
+      "filename" : "RPLidarIcon.png",
       "idiom" : "ios-marketing",
-      "size" : "1024x1024",
-      "scale" : "1x"
+      "scale" : "1x",
+      "size" : "1024x1024"
     }
   ],
   "info" : {
-    "version" : 1,
-    "author" : "xcode"
+    "author" : "xcode",
+    "version" : 1
   }
 }
