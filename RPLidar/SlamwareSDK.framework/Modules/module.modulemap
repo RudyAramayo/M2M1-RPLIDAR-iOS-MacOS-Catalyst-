@@ -1,0 +1,6 @@
+framework module SlamwareSDK {
+  umbrella header "SlamwareSDK.h"
+
+  export *
+  module * { export * }
+}
