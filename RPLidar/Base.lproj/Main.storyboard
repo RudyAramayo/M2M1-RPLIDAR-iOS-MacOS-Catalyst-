@@ -1,24 +1,136 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="20037" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="BYZ-38-t0r">
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="21701" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="BYZ-38-t0r">
+    <device id="ipad12_9rounded" orientation="portrait" layout="fullscreen" appearance="light"/>
     <dependencies>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="20020"/>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21679"/>
         <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="System colors in document resources" minToolsVersion="11.0"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <scenes>
         <!--Lidar View Controller-->
         <scene sceneID="tne-QT-ifu">
             <objects>
-                <viewController id="BYZ-38-t0r" customClass="RPLidarViewController" customModuleProvider="target" sceneMemberID="viewController">
+                <viewController id="BYZ-38-t0r" customClass="RPLidarViewController" customModule="RPLidar" customModuleProvider="target" sceneMemberID="viewController">
                     <view key="view" contentMode="scaleToFill" id="8bC-Xf-vdC">
-                        <rect key="frame" x="0.0" y="0.0" width="600" height="600"/>
+                        <rect key="frame" x="0.0" y="0.0" width="1024" height="1366"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="RPLidarIcon" translatesAutoresizingMaskIntoConstraints="NO" id="3VL-Yq-Ymo">
+                                <rect key="frame" x="20" y="24" width="984" height="1322"/>
+                            </imageView>
+                            <view hidden="YES" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="5HY-Bm-bsQ" customClass="RPLidarPolarView" customModule="RPLidar" customModuleProvider="target">
+                                <rect key="frame" x="0.0" y="0.0" width="1024" height="1076"/>
+                                <color key="backgroundColor" systemColor="systemBackgroundColor"/>
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="1076" id="ETz-LA-eYM"/>
+                                    <constraint firstAttribute="width" constant="1024" id="dyy-cP-3gc"/>
+                                </constraints>
+                            </view>
+                            <view contentMode="scaleToFill" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="xdd-An-5Lx" userLabel="LocationDataView">
+                                <rect key="frame" x="5" y="5" width="320" height="170"/>
+                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                                <subviews>
+                                    <stackView opaque="NO" contentMode="scaleToFill" fixedFrame="YES" axis="vertical" alignment="center" spacing="7" translatesAutoresizingMaskIntoConstraints="NO" id="LZ6-QI-Ebd">
+                                        <rect key="frame" x="0.0" y="0.0" width="320" height="170"/>
+                                        <subviews>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Location" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="aVo-eZ-yan">
+                                                <rect key="frame" x="127" y="0.0" width="66" height="21"/>
+                                                <constraints>
+                                                    <constraint firstAttribute="height" constant="21" id="Gal-lJ-B6o"/>
+                                                    <constraint firstAttribute="width" constant="66" id="XAB-ZB-UCZ"/>
+                                                </constraints>
+                                                <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                                <nil key="textColor"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="X: 0.0   Y: 0.0   Z: 0.0" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="aeM-pc-VIq">
+                                                <rect key="frame" x="65" y="28" width="190" height="21"/>
+                                                <constraints>
+                                                    <constraint firstAttribute="height" constant="21" id="OQU-p7-knq"/>
+                                                    <constraint firstAttribute="width" constant="190" id="Yge-PD-EQQ"/>
+                                                </constraints>
+                                                <fontDescription key="fontDescription" type="system" pointSize="11"/>
+                                                <nil key="textColor"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Rotation" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="liY-PV-rEP">
+                                                <rect key="frame" x="128" y="56" width="64" height="21"/>
+                                                <constraints>
+                                                    <constraint firstAttribute="width" constant="64" id="DPt-O5-0NM"/>
+                                                    <constraint firstAttribute="height" constant="21" id="Sme-tD-wrU"/>
+                                                </constraints>
+                                                <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                                <nil key="textColor"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Yaw: 0.0   Pitch: 0.0   Roll: 0.0" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Rc0-eb-1Ne">
+                                                <rect key="frame" x="65" y="84" width="190" height="21"/>
+                                                <constraints>
+                                                    <constraint firstAttribute="width" constant="190" id="SpU-Q4-9yf"/>
+                                                    <constraint firstAttribute="height" constant="21" id="syf-hz-RbG"/>
+                                                </constraints>
+                                                <fontDescription key="fontDescription" type="system" pointSize="11"/>
+                                                <nil key="textColor"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Zoom Slider" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="RYf-vT-sWL">
+                                                <rect key="frame" x="114" y="112" width="92" height="21"/>
+                                                <constraints>
+                                                    <constraint firstAttribute="width" relation="greaterThanOrEqual" constant="92" id="L97-oA-sLx"/>
+                                                    <constraint firstAttribute="height" constant="21" id="WU9-sW-24Y"/>
+                                                </constraints>
+                                                <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                                <nil key="textColor"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                            <slider opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" value="100" minValue="1" maxValue="1000" translatesAutoresizingMaskIntoConstraints="NO" id="voc-51-x1b">
+                                                <rect key="frame" x="-2" y="140" width="324" height="31"/>
+                                                <constraints>
+                                                    <constraint firstAttribute="width" constant="320" id="Sjs-wL-2bw"/>
+                                                </constraints>
+                                                <connections>
+                                                    <action selector="zoomActionWithSender:" destination="BYZ-38-t0r" eventType="valueChanged" id="GbQ-Bj-iJ4"/>
+                                                </connections>
+                                            </slider>
+                                        </subviews>
+                                        <color key="backgroundColor" red="0.0" green="0.0" blue="0.0" alpha="0.33212272488341038" colorSpace="custom" customColorSpace="sRGB"/>
+                                    </stackView>
+                                </subviews>
+                            </view>
+                        </subviews>
                         <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
                         <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="3VL-Yq-Ymo" firstAttribute="top" secondItem="6Tk-OE-BBY" secondAttribute="top" id="1bW-rf-onX"/>
+                            <constraint firstItem="6Tk-OE-BBY" firstAttribute="trailing" secondItem="5HY-Bm-bsQ" secondAttribute="trailing" id="8lF-nJ-Dxb"/>
+                            <constraint firstItem="5HY-Bm-bsQ" firstAttribute="top" secondItem="6Tk-OE-BBY" secondAttribute="top" constant="-24" id="HqH-ME-07N"/>
+                            <constraint firstItem="6Tk-OE-BBY" firstAttribute="trailing" secondItem="3VL-Yq-Ymo" secondAttribute="trailing" constant="20" id="Og9-rc-n8c"/>
+                            <constraint firstItem="3VL-Yq-Ymo" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" constant="20" id="Qc5-6M-hDA"/>
+                            <constraint firstItem="3VL-Yq-Ymo" firstAttribute="bottom" secondItem="6Tk-OE-BBY" secondAttribute="bottom" id="V5f-Pz-eM8"/>
+                            <constraint firstItem="5HY-Bm-bsQ" firstAttribute="bottom" secondItem="6Tk-OE-BBY" secondAttribute="bottom" constant="-270" id="a3W-aZ-a9I"/>
+                            <constraint firstItem="5HY-Bm-bsQ" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" id="r1t-3i-zGe"/>
+                            <constraint firstItem="5HY-Bm-bsQ" firstAttribute="top" secondItem="6Tk-OE-BBY" secondAttribute="top" constant="-24" id="twZ-sb-0P0"/>
+                            <constraint firstItem="5HY-Bm-bsQ" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" id="txz-xt-Nvz"/>
+                        </constraints>
                     </view>
+                    <connections>
+                        <outlet property="locationLabel" destination="aeM-pc-VIq" id="dOQ-4L-R10"/>
+                        <outlet property="rotationLabel" destination="Rc0-eb-1Ne" id="Tec-21-EH0"/>
+                        <outlet property="rpLidarImageView" destination="3VL-Yq-Ymo" id="hKP-6H-47X"/>
+                        <outlet property="rpLidarPolarView" destination="5HY-Bm-bsQ" id="Xam-l0-HnB"/>
+                    </connections>
                 </viewController>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="dkx-z0-nzr" sceneMemberID="firstResponder"/>
             </objects>
+            <point key="canvasLocation" x="18.75" y="37.774524158125914"/>
         </scene>
     </scenes>
+    <resources>
+        <image name="RPLidarIcon" width="1024" height="1024"/>
+        <systemColor name="systemBackgroundColor">
+            <color white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+        </systemColor>
+    </resources>
 </document>

@@ -18,6 +18,7 @@
 		D4D15924280217D200AFFA1E /* AutoNetClientConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */; };
 		D4D15925280217D200AFFA1E /* AutoNetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15922280217D200AFFA1E /* AutoNetClient.swift */; };
 		D4D1592728021EB300AFFA1E /* RPLidarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D1592628021EB300AFFA1E /* RPLidarController.swift */; };
+		D4D159292802394B00AFFA1E /* RPLidarPolarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D159282802394A00AFFA1E /* RPLidarPolarView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -46,6 +47,7 @@
 		D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetClientConnection.swift; path = AutoNetClient/AutoNetClientConnection.swift; sourceTree = "<group>"; };
 		D4D15922280217D200AFFA1E /* AutoNetClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetClient.swift; path = AutoNetClient/AutoNetClient.swift; sourceTree = "<group>"; };
 		D4D1592628021EB300AFFA1E /* RPLidarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarController.swift; sourceTree = "<group>"; };
+		D4D159282802394A00AFFA1E /* RPLidarPolarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarPolarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +83,7 @@
 			children = (
 				D47643A4270D02300032A370 /* AppDelegate.swift */,
 				D47643A6270D02300032A370 /* RPLidarViewController.swift */,
+				D4D159282802394A00AFFA1E /* RPLidarPolarView.swift */,
 				D4D1592628021EB300AFFA1E /* RPLidarController.swift */,
 				D4D15922280217D200AFFA1E /* AutoNetClient.swift */,
 				D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */,
@@ -168,6 +171,7 @@
 			files = (
 				D4D15923280217D200AFFA1E /* AutoNetDataTransferProtocol.swift in Sources */,
 				D4D15925280217D200AFFA1E /* AutoNetClient.swift in Sources */,
+				D4D159292802394B00AFFA1E /* RPLidarPolarView.swift in Sources */,
 				D4D1592728021EB300AFFA1E /* RPLidarController.swift in Sources */,
 				D47643A7270D02300032A370 /* RPLidarViewController.swift in Sources */,
 				D47643A5270D02300032A370 /* AppDelegate.swift in Sources */,

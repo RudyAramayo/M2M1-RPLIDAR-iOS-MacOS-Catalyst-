@@ -65,6 +65,7 @@ class RPLidarController: NSObject {
         deviceManager?.getStatus(.BOTH)
     }
     
+    /// Returns the RPMap of the known area
     var getMap: RPMap? {
         if let rpKnownRect = rpSlamwarePlatformProtocol_object?.getKnownArea(of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap) {
             return rpSlamwarePlatformProtocol_object?.getMapWith(RPMapTypeBitmap8Bit, inArea: rpKnownRect, of: RPMapKindExploreMap)
