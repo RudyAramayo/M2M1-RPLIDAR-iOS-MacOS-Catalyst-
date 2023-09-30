@@ -37,6 +37,7 @@ import Network
         tcp_options.enableKeepalive = true
         tcp_options.keepaliveIdle = 2
         tcp_options.keepaliveCount = 1
+        tcp_options.noDelay = true
         
         let parameters = NWParameters.init(tls: nil, tcp: tcp_options)
         parameters.allowLocalEndpointReuse = true
