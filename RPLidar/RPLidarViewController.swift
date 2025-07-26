@@ -198,11 +198,12 @@ class RPLidarViewController: UIViewController {
             
             do {
                 let encodedData = try encoder.encode(current_robotMap)
-                let jsonString = String(data: encodedData, encoding: .utf8)
+                //let jsonString = String(data: encodedData, encoding: .utf8)
                 //print("rpmap: \(jsonString ?? "Couldn't convert to JSON string")")
                 //let fileURL = mapsDirectory.appendingPathComponent("\(locationName).json")
                 //try encodedData.write(to: fileURL)
-                UserDefaults.standard.set(encodedData, forKey: "\(locationName).rpmap")
+                //UserDefaults.standard.set(encodedData, forKey: "\(locationName).rpmap")
+                RPAppKitController.shared.writeMapToFile(location: locationName, data: encodedData)
             } catch {
                 print("failed to encode: \(error)")
             }
@@ -210,7 +211,8 @@ class RPLidarViewController: UIViewController {
     }
     
     func restoreMap(with locationName: String) {
-        if let data = UserDefaults.standard.data(forKey: "\(locationName).rpmap") {
+        //if let data = UserDefaults.standard.data(forKey: "\(locationName).rpmap") {
+        if let data = RPAppKitController.shared.loadMap(locationName) {
             let decoder = JSONDecoder()
             do {
                 let map = try decoder.decode(ROBOMap.self, from: data)

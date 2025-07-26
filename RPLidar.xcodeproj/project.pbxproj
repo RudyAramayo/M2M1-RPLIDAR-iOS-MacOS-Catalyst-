@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 50;
+	objectVersion = 55;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -17,12 +17,39 @@
 		D47643AF270D02320032A370 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = D47643AD270D02320032A370 /* LaunchScreen.storyboard */; };
 		D48CDCBF2E04971D001A43B0 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D48CDCBE2E04971D001A43B0 /* AVFoundation.framework */; };
 		D492738D27307B1C009E7F9C /* SlamwareSDK.framework in CopyFiles */ = {isa = PBXBuildFile; fileRef = D440478B27188C5E00DF41EF /* SlamwareSDK.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D4B2232A2E3469B7003B9FF6 /* RPAppKitController.bundle in Embed PlugIns */ = {isa = PBXBuildFile; fileRef = D4B223262E3469A0003B9FF6 /* RPAppKitController.bundle */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D4B223342E346C28003B9FF6 /* RPAppKitController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B223332E346C28003B9FF6 /* RPAppKitController.swift */; };
+		D4B223352E346C28003B9FF6 /* RPAppKitController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B223332E346C28003B9FF6 /* RPAppKitController.swift */; };
 		D4D15923280217D200AFFA1E /* AutoNetDataTransferProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15920280217D200AFFA1E /* AutoNetDataTransferProtocol.swift */; };
 		D4D15924280217D200AFFA1E /* AutoNetClientConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */; };
 		D4D15925280217D200AFFA1E /* AutoNetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15922280217D200AFFA1E /* AutoNetClient.swift */; };
 		D4D1592728021EB300AFFA1E /* RPLidarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D1592628021EB300AFFA1E /* RPLidarController.swift */; };
 		D4D159292802394B00AFFA1E /* RPLidarPolarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D159282802394A00AFFA1E /* RPLidarPolarView.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D4B2232B2E3469B7003B9FF6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4764399270D02300032A370 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4B223252E3469A0003B9FF6;
+			remoteInfo = RPAppKitController;
+		};
+		D4B2232E2E3469EA003B9FF6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4764399270D02300032A370 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4B223252E3469A0003B9FF6;
+			remoteInfo = RPAppKitController;
+		};
+		D4B223302E346A0E003B9FF6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4764399270D02300032A370 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4B223252E3469A0003B9FF6;
+			remoteInfo = RPAppKitController;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		D492738C27307B06009E7F9C /* CopyFiles */ = {
@@ -33,6 +60,17 @@
 			files = (
 				D492738D27307B1C009E7F9C /* SlamwareSDK.framework in CopyFiles */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4B2232D2E3469B7003B9FF6 /* Embed PlugIns */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D4B2232A2E3469B7003B9FF6 /* RPAppKitController.bundle in Embed PlugIns */,
+			);
+			name = "Embed PlugIns";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -54,6 +92,9 @@
 		D47643B0270D02320032A370 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D48CDCBE2E04971D001A43B0 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		D48CDCC02E049750001A43B0 /* RPLidar.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RPLidar.entitlements; sourceTree = "<group>"; };
+		D4B223262E3469A0003B9FF6 /* RPAppKitController.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RPAppKitController.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4B223322E346C28003B9FF6 /* RPAppKitController-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "RPAppKitController-Bridging-Header.h"; sourceTree = "<group>"; };
+		D4B223332E346C28003B9FF6 /* RPAppKitController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPAppKitController.swift; sourceTree = "<group>"; };
 		D4D15920280217D200AFFA1E /* AutoNetDataTransferProtocol.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetDataTransferProtocol.swift; path = AutoNetClient/AutoNetDataTransferProtocol.swift; sourceTree = "<group>"; };
 		D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetClientConnection.swift; path = AutoNetClient/AutoNetClientConnection.swift; sourceTree = "<group>"; };
 		D4D15922280217D200AFFA1E /* AutoNetClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetClient.swift; path = AutoNetClient/AutoNetClient.swift; sourceTree = "<group>"; };
@@ -68,6 +109,13 @@
 			files = (
 				D48CDCBF2E04971D001A43B0 /* AVFoundation.framework in Frameworks */,
 				D440478C27188C5E00DF41EF /* SlamwareSDK.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4B223232E3469A0003B9FF6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -87,6 +135,7 @@
 			isa = PBXGroup;
 			children = (
 				D47643A1270D02300032A370 /* RPLidar.app */,
+				D4B223262E3469A0003B9FF6 /* RPAppKitController.bundle */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -104,6 +153,7 @@
 				D4D159282802394A00AFFA1E /* RPLidarPolarView.swift */,
 				D4D1592628021EB300AFFA1E /* RPLidarController.swift */,
 				D443B2BB2AC8BEA9008A703A /* bitmap_image.hpp */,
+				D4B223332E346C28003B9FF6 /* RPAppKitController.swift */,
 				D4D15922280217D200AFFA1E /* AutoNetClient.swift */,
 				D4D15921280217D200AFFA1E /* AutoNetClientConnection.swift */,
 				D4D15920280217D200AFFA1E /* AutoNetDataTransferProtocol.swift */,
@@ -113,6 +163,7 @@
 				D47643B0270D02320032A370 /* Info.plist */,
 				D440478B27188C5E00DF41EF /* SlamwareSDK.framework */,
 				D443B2BC2AC8BF64008A703A /* RPLidar-Bridging-Header.h */,
+				D4B223322E346C28003B9FF6 /* RPAppKitController-Bridging-Header.h */,
 			);
 			path = RPLidar;
 			sourceTree = "<group>";
@@ -136,15 +187,38 @@
 				D476439E270D02300032A370 /* Frameworks */,
 				D476439F270D02300032A370 /* Resources */,
 				D492738C27307B06009E7F9C /* CopyFiles */,
+				D4B2232D2E3469B7003B9FF6 /* Embed PlugIns */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D4B2232C2E3469B7003B9FF6 /* PBXTargetDependency */,
+				D4B2232F2E3469EA003B9FF6 /* PBXTargetDependency */,
+				D4B223312E346A0E003B9FF6 /* PBXTargetDependency */,
 			);
 			name = RPLidar;
 			productName = test;
 			productReference = D47643A1270D02300032A370 /* RPLidar.app */;
 			productType = "com.apple.product-type.application";
+		};
+		D4B223252E3469A0003B9FF6 /* RPAppKitController */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D4B223292E3469A0003B9FF6 /* Build configuration list for PBXNativeTarget "RPAppKitController" */;
+			buildPhases = (
+				D4B223222E3469A0003B9FF6 /* Sources */,
+				D4B223232E3469A0003B9FF6 /* Frameworks */,
+				D4B223242E3469A0003B9FF6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RPAppKitController;
+			packageProductDependencies = (
+			);
+			productName = RPAppKitController;
+			productReference = D4B223262E3469A0003B9FF6 /* RPAppKitController.bundle */;
+			productType = "com.apple.product-type.bundle";
 		};
 /* End PBXNativeTarget section */
 
@@ -159,6 +233,10 @@
 					D47643A0270D02300032A370 = {
 						CreatedOnToolsVersion = 10.2.1;
 						LastSwiftMigration = 1500;
+					};
+					D4B223252E3469A0003B9FF6 = {
+						CreatedOnToolsVersion = 26.0;
+						LastSwiftMigration = 2600;
 					};
 				};
 			};
@@ -176,6 +254,7 @@
 			projectRoot = "";
 			targets = (
 				D47643A0270D02300032A370 /* RPLidar */,
+				D4B223252E3469A0003B9FF6 /* RPAppKitController */,
 			);
 		};
 /* End PBXProject section */
@@ -188,6 +267,13 @@
 				D47643AF270D02320032A370 /* LaunchScreen.storyboard in Resources */,
 				D47643AC270D02320032A370 /* Assets.xcassets in Resources */,
 				D47643AA270D02300032A370 /* Main.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4B223242E3469A0003B9FF6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -206,11 +292,41 @@
 				D47643A7270D02300032A370 /* RPLidarViewController.swift in Sources */,
 				D443B2C22AC8BFF6008A703A /* BitmapImageWrapper.mm in Sources */,
 				D47643A5270D02300032A370 /* AppDelegate.swift in Sources */,
+				D4B223342E346C28003B9FF6 /* RPAppKitController.swift in Sources */,
 				D4D15924280217D200AFFA1E /* AutoNetClientConnection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D4B223222E3469A0003B9FF6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D4B223352E346C28003B9FF6 /* RPAppKitController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D4B2232C2E3469B7003B9FF6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilters = (
+				macos,
+			);
+			target = D4B223252E3469A0003B9FF6 /* RPAppKitController */;
+			targetProxy = D4B2232B2E3469B7003B9FF6 /* PBXContainerItemProxy */;
+		};
+		D4B2232F2E3469EA003B9FF6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D4B223252E3469A0003B9FF6 /* RPAppKitController */;
+			targetProxy = D4B2232E2E3469EA003B9FF6 /* PBXContainerItemProxy */;
+		};
+		D4B223312E346A0E003B9FF6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D4B223252E3469A0003B9FF6 /* RPAppKitController */;
+			targetProxy = D4B223302E346A0E003B9FF6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		D47643A8270D02300032A370 /* Main.storyboard */ = {
@@ -361,7 +477,10 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 975CAGD5EW;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_BITCODE = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/RPLidar",
@@ -377,6 +496,9 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitusrobotics.rplidar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				REGISTER_APP_GROUPS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "RPLidar/RPLidar-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -393,7 +515,10 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 975CAGD5EW;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_BITCODE = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/RPLidar",
@@ -409,9 +534,81 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitusrobotics.rplidar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				REGISTER_APP_GROUPS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "RPLidar/RPLidar-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D4B223272E3469A0003B9FF6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975CAGD5EW;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "Writing maps to disk";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 OrbitusRobotics. All rights reserved.";
+				INFOPLIST_KEY_NSPrincipalClass = RPAppKitController;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitus.RPAppKitController;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "RPLidar/RPAppKitController-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				WRAPPER_EXTENSION = bundle;
+			};
+			name = Debug;
+		};
+		D4B223282E3469A0003B9FF6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975CAGD5EW;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "Writing maps to disk";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 OrbitusRobotics. All rights reserved.";
+				INFOPLIST_KEY_NSPrincipalClass = RPAppKitController;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitus.RPAppKitController;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "RPLidar/RPAppKitController-Bridging-Header.h";
+				SWIFT_VERSION = 6.0;
+				WRAPPER_EXTENSION = bundle;
 			};
 			name = Release;
 		};
@@ -432,6 +629,15 @@
 			buildConfigurations = (
 				D47643B4270D02320032A370 /* Debug */,
 				D47643B5270D02320032A370 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D4B223292E3469A0003B9FF6 /* Build configuration list for PBXNativeTarget "RPAppKitController" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D4B223272E3469A0003B9FF6 /* Debug */,
+				D4B223282E3469A0003B9FF6 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -16,6 +16,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+                
+        if let pluginsURL = Bundle.main.builtInPlugInsURL {
+            let rpAppKitControllerPluginURL = pluginsURL.appendingPathComponent("RPAppKitController.bundle")
+            Bundle(path: rpAppKitControllerPluginURL.path)?.load()
+            
+//            //-------
+//            // UnitTests for writing to disk
+//            if let data = "Data".data(using: .utf8) {
+//                RPAppKitController.shared.writeMapToFile(location: "HOME", data: data)
+//            }
+//            let maps = RPAppKitController.shared.allMaps()
+//            print("maps \(maps)")
+//            
+//            if let data = RPAppKitController.shared.loadMap("HOME") {
+//                let mapData = String(data: data, encoding: .utf8)
+//                print("mapData = \(mapData ?? "")")
+//            }
+//            //--------
+        }
+
         return true
     }
 
