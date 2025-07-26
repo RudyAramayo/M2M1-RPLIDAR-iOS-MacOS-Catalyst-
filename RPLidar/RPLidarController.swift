@@ -73,6 +73,20 @@ class RPLidarController: NSObject {
         return nil
     }
     
+    func setMap(_ map: RPMap?, pose: RPPose?) {
+        if let map = map,
+           let pose = pose {
+            rpSlamwarePlatformProtocol_object?.setMapUpdate(false)
+            rpSlamwarePlatformProtocol_object?.setMapLocalization(false)
+            
+            rpSlamwarePlatformProtocol_object?.setPose(pose)
+            rpSlamwarePlatformProtocol_object?.setMapWith(map, of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap)
+            
+            rpSlamwarePlatformProtocol_object?.setMapUpdate(true)
+            rpSlamwarePlatformProtocol_object?.setMapLocalization(true)
+        }
+    }
+    
     /// RPLaserPoint Array returned
     var laserPoints: [RPLaserPoint]? {
         let laserScan = rpSlamwarePlatformProtocol_object?.laserScan()
