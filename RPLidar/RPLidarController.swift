@@ -14,6 +14,11 @@ class RPLidarController: NSObject {
     var deviceManager: RPDeviceManager?
     var rpSlamwarePlatformProtocol_object: RPSlamwarePlatformProtocol?
     
+    var currentLocation: RPLocation?
+    var currentPose: RPPose?
+    var currentLaserPoints: [RPLaserPoint]?
+    var currentMap: RPMap?
+    
     init(ip: String) {
         connectionIP = ip
         super.init()
@@ -44,6 +49,19 @@ class RPLidarController: NSObject {
     var pose: RPPose? {
         rpSlamwarePlatformProtocol_object?.pose()
     }
+    
+    func getPose() throws -> RPPose? {
+        do {
+            try ExceptionCatcher.catchException {
+                // Simulate an Objective-C exception
+                self.currentPose = self.rpSlamwarePlatformProtocol_object?.pose()
+            }
+        } catch {
+            print("Caught Objective-C exception currentPose: \(error.localizedDescription)")
+            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentPose"])
+        }
+        return currentPose
+    }
     /// Returns localization quality of the RPLidar. 0 the highest quality
     var localiationQuality: Int32? {
         rpSlamwarePlatformProtocol_object?.localizationQuality()
@@ -52,6 +70,35 @@ class RPLidarController: NSObject {
     var location: RPLocation? {
         rpSlamwarePlatformProtocol_object?.location()
     }
+    
+    func getLocation() throws -> RPLocation? {
+        do {
+            try ExceptionCatcher.catchException {
+                // Simulate an Objective-C exception
+                self.currentLocation = self.rpSlamwarePlatformProtocol_object?.location()
+            }
+        } catch {
+            print("Caught Objective-C exception currentLocation: \(error.localizedDescription)")
+            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentLocation"])
+        }
+        return currentLocation
+    }
+    
+    func performRiskyOperation() throws {
+        // Assume this is an Objective-C method that can throw an NSException
+        // For demonstration, we'll simulate it.
+        
+        do {
+            try ExceptionCatcher.catchException {
+                // Simulate an Objective-C exception
+                NSException(name: NSExceptionName("SimulatedException"), reason: "Something went wrong in ObjC", userInfo: nil).raise()
+            }
+        } catch {
+            print("Caught Objective-C exception as Swift Error: \(error.localizedDescription)")
+            throw NSError(domain: "YourAppDomain", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to Objective-C exception"])
+        }
+    }
+
     /// Returns the network status of the RPLidar
     var networkStatus: [String: String]? {
         rpSlamwarePlatformProtocol_object?.getNetworkStatus()
@@ -72,6 +119,22 @@ class RPLidarController: NSObject {
         }
         return nil
     }
+    
+    func getCurrentMap() throws -> RPMap? {
+        do {
+            try ExceptionCatcher.catchException { [self] in
+                // Simulate an Objective-C exception
+                if let rpKnownRect = self.rpSlamwarePlatformProtocol_object?.getKnownArea(of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap) {
+                    self.currentMap = self.rpSlamwarePlatformProtocol_object?.getMapWith(RPMapTypeBitmap8Bit, inArea: rpKnownRect, of: RPMapKindExploreMap)
+                }
+            }
+        } catch {
+            print("Caught Objective-C exception currentLocation: \(error.localizedDescription)")
+            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentLocation"])
+        }
+        return currentMap
+    }
+
     
     func setMap(_ map: RPMap?, pose: RPPose?) {
         if let map = map,
@@ -99,6 +162,19 @@ class RPLidarController: NSObject {
         //    }
         //}
         //---------
+    }
+    
+    func getLaserPoints() throws -> [RPLaserPoint]? {
+        do {
+            try ExceptionCatcher.catchException {
+                // Simulate an Objective-C exception
+                self.currentLaserPoints = self.rpSlamwarePlatformProtocol_object?.laserScan().laserPoints
+            }
+        } catch {
+            print("Caught Objective-C exception currentLaserPoints: \(error.localizedDescription)")
+            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentLaserPoints"])
+        }
+        return currentLaserPoints
     }
 }
 

@@ -17,6 +17,7 @@
 		D47643AF270D02320032A370 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = D47643AD270D02320032A370 /* LaunchScreen.storyboard */; };
 		D48CDCBF2E04971D001A43B0 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D48CDCBE2E04971D001A43B0 /* AVFoundation.framework */; };
 		D492738D27307B1C009E7F9C /* SlamwareSDK.framework in CopyFiles */ = {isa = PBXBuildFile; fileRef = D440478B27188C5E00DF41EF /* SlamwareSDK.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D4AF56272E3583C700DA4EF0 /* ExceptionCatcher.m in Sources */ = {isa = PBXBuildFile; fileRef = D4AF56262E3583C700DA4EF0 /* ExceptionCatcher.m */; };
 		D4B2232A2E3469B7003B9FF6 /* RPAppKitController.bundle in Embed PlugIns */ = {isa = PBXBuildFile; fileRef = D4B223262E3469A0003B9FF6 /* RPAppKitController.bundle */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D4B223342E346C28003B9FF6 /* RPAppKitController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B223332E346C28003B9FF6 /* RPAppKitController.swift */; };
 		D4B223352E346C28003B9FF6 /* RPAppKitController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B223332E346C28003B9FF6 /* RPAppKitController.swift */; };
@@ -92,6 +93,8 @@
 		D47643B0270D02320032A370 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D48CDCBE2E04971D001A43B0 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		D48CDCC02E049750001A43B0 /* RPLidar.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RPLidar.entitlements; sourceTree = "<group>"; };
+		D4AF56262E3583C700DA4EF0 /* ExceptionCatcher.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ExceptionCatcher.m; sourceTree = "<group>"; };
+		D4AF56282E3583E800DA4EF0 /* ExceptionCatcher.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ExceptionCatcher.h; sourceTree = "<group>"; };
 		D4B223262E3469A0003B9FF6 /* RPAppKitController.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RPAppKitController.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		D4B223322E346C28003B9FF6 /* RPAppKitController-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "RPAppKitController-Bridging-Header.h"; sourceTree = "<group>"; };
 		D4B223332E346C28003B9FF6 /* RPAppKitController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPAppKitController.swift; sourceTree = "<group>"; };
@@ -145,6 +148,8 @@
 			children = (
 				D48CDCC02E049750001A43B0 /* RPLidar.entitlements */,
 				D47643A4270D02300032A370 /* AppDelegate.swift */,
+				D4AF56282E3583E800DA4EF0 /* ExceptionCatcher.h */,
+				D4AF56262E3583C700DA4EF0 /* ExceptionCatcher.m */,
 				D47643A6270D02300032A370 /* RPLidarViewController.swift */,
 				D443B2BE2AC8BF64008A703A /* BitmapImage.hpp */,
 				D443B2BD2AC8BF64008A703A /* BitmapImage.cpp */,
@@ -294,6 +299,7 @@
 				D47643A5270D02300032A370 /* AppDelegate.swift in Sources */,
 				D4B223342E346C28003B9FF6 /* RPAppKitController.swift in Sources */,
 				D4D15924280217D200AFFA1E /* AutoNetClientConnection.swift in Sources */,
+				D4AF56272E3583C700DA4EF0 /* ExceptionCatcher.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

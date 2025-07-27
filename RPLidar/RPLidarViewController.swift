@@ -9,13 +9,22 @@ import UIKit
 import SlamwareSDK
 
 class RPLidarViewController: UIViewController {
-    
+
+    static let kLidarPulseFrequency = 0.20
+    static let kMapPulseFrequency = 5.0
+    static let kMapLocalStorageFrequency = 30.0
+
     var rpLidar: RPLidarController = RPLidarController(ip: "192.168.11.1")
     var autoNetClient: AutoNetClient = AutoNetClient(service: "_roboNet._tcp")
     let distance_filter: Float = 1.0
     let angleFilter: Float = 0.50
 
+    private var queue = DispatchQueue(label: "lidar.queue")
+
+    var currentLocation: RPLocation?
     var currentMap: RPMap?
+    var currentPose: RPPose?
+    var currentLaserPoints: [RPLaserPoint]?
     
     @IBOutlet var rpLidarImageView: UIImageView!
     @IBOutlet var rpLidarPolarView: RPLidarPolarView!
@@ -28,6 +37,12 @@ class RPLidarViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        //-----
+        // Unit test usage of obj-c exception catching which is not the same as swift exception catching
+        //try? rpLidar.performRiskyOperation()
+        //-----
+        
         autoNetClient.dataDelegate = self
         autoNetClient.start()
         rpLidarImageView.transform = CGAffineTransformMakeScale(1.0, -1.0)
@@ -44,9 +59,6 @@ class RPLidarViewController: UIViewController {
             }
         }
     }
-    static let kLidarPulseFrequency = 0.15
-    static let kMapPulseFrequency = 0.5
-    static let kMapLocalStorageFrequency = 10.0
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
@@ -67,10 +79,11 @@ class RPLidarViewController: UIViewController {
     }
     
     @objc func lidarPulse() {
-        
-        DispatchQueue.global(qos: .userInteractive).async {
+        //DispatchQueue.global(qos: .userInteractive).async {
+        queue.async {
             var dataString = ""
-            if let location = self.rpLidar.location {
+            if let location = try? self.rpLidar.getLocation() {
+                self.currentLocation = location
                 DispatchQueue.main.async {
                     self.locationLabel.text = "x: \(location.x)  y: \(location.y)  z: \(location.z)"
                 }
@@ -78,7 +91,8 @@ class RPLidarViewController: UIViewController {
             } else {
                 dataString += "0:0:0\n"
             }
-            if let pose = self.rpLidar.pose {
+            if let pose = try? self.rpLidar.getPose() {
+                self.currentPose = pose
                 DispatchQueue.main.async {
                     self.rotationLabel.text = "yaw: \(pose.yaw())  pitch: \(pose.pitch())  roll: \(pose.roll())"
                 }
@@ -86,7 +100,8 @@ class RPLidarViewController: UIViewController {
             } else {
                 dataString += "0:0:0\n"
             }
-            if let laserPoints = self.rpLidar.laserPoints {
+            if let laserPoints = try? self.rpLidar.getLaserPoints() {
+                self.currentLaserPoints = laserPoints
                 var filteredLaserPoints: [RPLaserPoint] = []
                 
                 for laserPoint in laserPoints {
@@ -122,8 +137,9 @@ class RPLidarViewController: UIViewController {
                  
     @objc func mapPulse() {
         
-        DispatchQueue.global(qos: .userInteractive).async {
-            if let map = self.rpLidar.getMap {
+        //DispatchQueue.global(qos: .userInteractive).async {
+        queue.async {
+            if let map = try? self.rpLidar.getCurrentMap() {
                 self.currentMap = map
                 let data = map.data
                 let width = map.dimension.width
@@ -135,34 +151,35 @@ class RPLidarViewController: UIViewController {
                 let image = self.mask(from: dataBytes, dataWidth: width, dataHeight: height)
                 DispatchQueue.main.async {
                     self.rpLidarImageView.image = image
-                    if let yaw = self.rpLidar.pose?.yaw(),
-                       let location = self.rpLidar.location {
-                        let polarViewWidth = self.rpLidarPolarView.frame.size.width
-                        let polarViewHeight = self.rpLidarPolarView.frame.size.height
-                        
-                        let x_min = map.origin.x - map.getArea().size.width / 2
-                        let x_max = map.origin.x + map.getArea().size.width / 2
-                        let y_min = map.origin.y - map.getArea().size.height / 2
-                        let y_max = map.origin.y + map.getArea().size.height / 2
-                        print("x_min \(x_min) x_max \(x_max) y_min \(y_min) y_max \(y_max)")
-                        
-                        let delta_x = x_max - x_min
-                        let delta_y = y_max - y_min
-                        print("delta_x \(delta_x) delta_y \(delta_y)")
-                        
-                        let delta_loc_x = location.x - x_min
-                        let delta_loc_y = location.y - y_min
-                        print("delta_loc_x \(delta_loc_x) delta_loc_y \(delta_loc_y)")
-                        
-                        let rotationTransform = CGAffineTransformMakeRotation(Double(yaw) - .pi / 2)
-                        let translationTransform = CGAffineTransformMakeTranslation(460, -40)
-                        print("x,y = \(location.x), \(location.y) -- map \(map.dimension.width), \(map.dimension.height) -- \(map.origin.x), \(map.origin.y) -- \(map.resolution.x), \(map.resolution.y) -- \(map.getArea().origin.x), \(map.getArea().origin.y) -- \(map.getArea().size.width), \(map.getArea().size.height)")
-                        
-                        let transform = CGAffineTransformConcat(rotationTransform, translationTransform)
-                        let scaleTransfor = CGAffineTransformMakeScale(1.0, -1.0)
-                        //self.rpLidarImageView.transform = CGAffineTransformConcat(scaleTransfor, transform)
-                        self.rpLidarPolarView.transform = CGAffineTransformMakeTranslation(460, -40)
-                    }
+//                    
+//                    if let yaw = self.rpLidar.pose?.yaw(),
+//                       let location = self.rpLidar.location {
+//                        let polarViewWidth = self.rpLidarPolarView.frame.size.width
+//                        let polarViewHeight = self.rpLidarPolarView.frame.size.height
+//                        
+//                        let x_min = map.origin.x - map.getArea().size.width / 2
+//                        let x_max = map.origin.x + map.getArea().size.width / 2
+//                        let y_min = map.origin.y - map.getArea().size.height / 2
+//                        let y_max = map.origin.y + map.getArea().size.height / 2
+//                        print("x_min \(x_min) x_max \(x_max) y_min \(y_min) y_max \(y_max)")
+//                        
+//                        let delta_x = x_max - x_min
+//                        let delta_y = y_max - y_min
+//                        print("delta_x \(delta_x) delta_y \(delta_y)")
+//                        
+//                        let delta_loc_x = location.x - x_min
+//                        let delta_loc_y = location.y - y_min
+//                        print("delta_loc_x \(delta_loc_x) delta_loc_y \(delta_loc_y)")
+//                        
+//                        let rotationTransform = CGAffineTransformMakeRotation(Double(yaw) - .pi / 2)
+//                        let translationTransform = CGAffineTransformMakeTranslation(460, -40)
+//                        print("x,y = \(location.x), \(location.y) -- map \(map.dimension.width), \(map.dimension.height) -- \(map.origin.x), \(map.origin.y) -- \(map.resolution.x), \(map.resolution.y) -- \(map.getArea().origin.x), \(map.getArea().origin.y) -- \(map.getArea().size.width), \(map.getArea().size.height)")
+//                        
+//                        let transform = CGAffineTransformConcat(rotationTransform, translationTransform)
+//                        let scaleTransfor = CGAffineTransformMakeScale(1.0, -1.0)
+//                        //self.rpLidarImageView.transform = CGAffineTransformConcat(scaleTransfor, transform)
+//                        self.rpLidarPolarView.transform = CGAffineTransformMakeTranslation(460, -40)
+//                    }
                 }
             }
         }
@@ -178,7 +195,7 @@ class RPLidarViewController: UIViewController {
     
     func storeMap(with locationName: String) {
         if let map = currentMap,
-         let pose = self.rpLidar.pose {
+         let pose = currentPose {
             let current_robotMap = ROBOMap(
                 origin: CGPoint(x: Double(map.origin.x), y: Double(map.origin.y)),
                 dimension: CGSize(width: Double(map.dimension.width), height: Double(map.dimension.height)),

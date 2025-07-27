@@ -3,3 +3,4 @@
 //
 
 #import "BitmapImageWrapper.h"
+#import "ExceptionCatcher.h"
