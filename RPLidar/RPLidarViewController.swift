@@ -6,21 +6,24 @@
 //  Copyright © 2021 OrbitusRobotics. All rights reserved.
 //
 import UIKit
+import Network
 import SlamwareSDK
 
 class RPLidarViewController: UIViewController {
-
+    
+    var isReconnecting: Bool = false
+    
     static let kLidarPulseFrequency = 0.20
     static let kMapPulseFrequency = 5.0
     static let kMapLocalStorageFrequency = 30.0
-
-    var rpLidar: RPLidarController = RPLidarController(ip: "192.168.11.1")
+    
+    var rpLidar: RPLidarController?
     var autoNetClient: AutoNetClient = AutoNetClient(service: "_roboNet._tcp")
     let distance_filter: Float = 1.0
     let angleFilter: Float = 0.50
-
+    
     private var queue = DispatchQueue(label: "lidar.queue")
-
+    
     var currentLocation: RPLocation?
     var currentMap: RPMap?
     var currentPose: RPPose?
@@ -31,10 +34,6 @@ class RPLidarViewController: UIViewController {
     @IBOutlet var locationLabel: UILabel!
     @IBOutlet var rotationLabel: UILabel!
     
-    @IBAction func clearMapAction() {
-        rpLidar.clearMap()
-    }
-    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -42,22 +41,45 @@ class RPLidarViewController: UIViewController {
         // Unit test usage of obj-c exception catching which is not the same as swift exception catching
         //try? rpLidar.performRiskyOperation()
         //-----
+        let destinationHost = NWEndpoint.Host("192.168.11.1")
+        let destinationPort = NWEndpoint.Port(rawValue: 1445)!
+        let destinationEndpoint = NWEndpoint.hostPort(host: destinationHost, port: destinationPort)
+        let connection = NWConnection(to: destinationEndpoint, using: .tcp)
+        connection.pathUpdateHandler = { path in
+            switch path.status {
+            case .satisfied:
+                print("Path to destination is available")
+                self.reconnect()
+                //self.rpLidar = RPLidarController(ip: "192.168.11.1")
+                if let status = self.rpLidar?.status {
+                    switch status {
+                    case .WORKING:
+                        print("discovery working")
+                    case .STOPPED:
+                        print("discovery stopped")
+                    case .ERROR:
+                        print("discovery error")
+                    @unknown default:
+                        print("unknown default error")
+                    }
+                }
+                
+            case .unsatisfied:
+                print("Path to destination is not available")
+            case .requiresConnection:
+                print("Path to destination needs a connection attempt")
+            @unknown default:
+                print("Unknown path status")
+            }
+            
+            // Access properties like path.usesInterfaceType, path.isExpensive, etc.
+        }
+        connection.start(queue: .global())
+        
         
         autoNetClient.dataDelegate = self
         autoNetClient.start()
         rpLidarImageView.transform = CGAffineTransformMakeScale(1.0, -1.0)
-        if let status = rpLidar.status {
-            switch status {
-            case .WORKING:
-                print("discovery working")
-            case .STOPPED:
-                print("discovery stopped")
-            case .ERROR:
-                print("discovery error")
-            @unknown default:
-                print("unknown default error")
-            }
-        }
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -69,8 +91,12 @@ class RPLidarViewController: UIViewController {
     
     @objc func appStartup() {
         Timer.scheduledTimer(timeInterval: RPLidarViewController.kLidarPulseFrequency, target: self, selector: #selector(lidarPulse), userInfo: nil, repeats: true)
-        Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapPulseFrequency, target: self, selector: #selector(mapPulse), userInfo: nil, repeats: true)
-        Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapLocalStorageFrequency, target: self, selector: #selector(mapStorage), userInfo: nil, repeats: true)
+        //Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapPulseFrequency, target: self, selector: #selector(mapPulse), userInfo: nil, repeats: true)
+        //Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapLocalStorageFrequency, target: self, selector: #selector(mapStorage), userInfo: nil, repeats: true)
+    }
+    
+    @IBAction func clearMapAction() {
+        rpLidar?.clearMap()
     }
     
     @IBAction func zoomAction(sender: UISlider) {
@@ -79,109 +105,141 @@ class RPLidarViewController: UIViewController {
     }
     
     @objc func lidarPulse() {
-        //DispatchQueue.global(qos: .userInteractive).async {
-        queue.async {
-            var dataString = ""
-            if let location = try? self.rpLidar.getLocation() {
-                self.currentLocation = location
-                DispatchQueue.main.async {
-                    self.locationLabel.text = "x: \(location.x)  y: \(location.y)  z: \(location.z)"
-                }
-                dataString += "\(location.x):\(location.y):\(location.z)\n"
-            } else {
-                dataString += "0:0:0\n"
-            }
-            if let pose = try? self.rpLidar.getPose() {
-                self.currentPose = pose
-                DispatchQueue.main.async {
-                    self.rotationLabel.text = "yaw: \(pose.yaw())  pitch: \(pose.pitch())  roll: \(pose.roll())"
-                }
-                dataString += "\(pose.yaw()):\(pose.pitch()):\(pose.roll())\n"
-            } else {
-                dataString += "0:0:0\n"
-            }
-            if let laserPoints = try? self.rpLidar.getLaserPoints() {
-                self.currentLaserPoints = laserPoints
-                var filteredLaserPoints: [RPLaserPoint] = []
-                
-                for laserPoint in laserPoints {
-                    if laserPoint.valid &&
-                        laserPoint.distance < self.distance_filter &&
-                        ((laserPoint.angle < self.angleFilter  &&
-                          laserPoint.angle > -self.angleFilter) || (laserPoint.angle > Float.pi - self.angleFilter  &&
-                                                                    laserPoint.angle < Float.pi) || (laserPoint.angle < -Float.pi + self.angleFilter  &&
-                                                                                                     laserPoint.angle > -Float.pi)) {
-                        filteredLaserPoints.append(laserPoint)
-                        dataString += "\(laserPoint.distance):\(laserPoint.angle)\n"
-                    }
-                }
-                
-                self.rpLidarPolarView.laserPoints = filteredLaserPoints
-                DispatchQueue.main.async {
-                    self.rpLidarPolarView.setNeedsDisplay()
-                }
-                
-            }
-            
-            let messageDict = ["message":dataString,
-                               "sender":"rpLidar"]
+        DispatchQueue.global(qos: .userInteractive).async {
+        //queue.async {
             do {
-                let data = try NSKeyedArchiver.archivedData(withRootObject: messageDict, requiringSecureCoding: false)
-                //self.autoNetClient.send(data: data)
-                //print("sent")
+                var dataString = ""
+                if let location = try self.rpLidar?.getLocation() {
+                    self.currentLocation = location
+                    DispatchQueue.main.async {
+                        self.locationLabel.text = "x: \(location.x)  y: \(location.y)  z: \(location.z)"
+                    }
+                    dataString += "\(location.x):\(location.y):\(location.z)\n"
+                } else {
+                    dataString += "0:0:0\n"
+                }
+                if let pose = try self.rpLidar?.getPose() {
+                    self.currentPose = pose
+                    DispatchQueue.main.async {
+                        self.rotationLabel.text = "yaw: \(pose.yaw())  pitch: \(pose.pitch())  roll: \(pose.roll())"
+                    }
+                    dataString += "\(pose.yaw()):\(pose.pitch()):\(pose.roll())\n"
+                } else {
+                    dataString += "0:0:0\n"
+                }
+                if let laserPoints = try self.rpLidar?.getLaserPoints() {
+                    self.currentLaserPoints = laserPoints
+                    var filteredLaserPoints: [RPLaserPoint] = []
+                    
+                    for laserPoint in laserPoints {
+                        if laserPoint.valid &&
+                            laserPoint.distance < self.distance_filter &&
+                            ((laserPoint.angle < self.angleFilter  &&
+                              laserPoint.angle > -self.angleFilter) || (laserPoint.angle > Float.pi - self.angleFilter  &&
+                                                                        laserPoint.angle < Float.pi) || (laserPoint.angle < -Float.pi + self.angleFilter  &&
+                                                                                                         laserPoint.angle > -Float.pi)) {
+                            filteredLaserPoints.append(laserPoint)
+                            dataString += "\(laserPoint.distance):\(laserPoint.angle)\n"
+                        }
+                    }
+                    
+                    self.rpLidarPolarView.laserPoints = filteredLaserPoints
+                    DispatchQueue.main.async {
+                        self.rpLidarPolarView.setNeedsDisplay()
+                    }
+                    
+                    //Send the laser points to the network if the option has been enabled
+                    //let messageDict = ["message":dataString,
+                    //                   "sender":"rpLidar"]
+                    //let data = try NSKeyedArchiver.archivedData(withRootObject: messageDict, requiringSecureCoding: false)
+                    //self.autoNetClient.send(data: data)
+                    //print("sent")
+                }
             } catch {
-                print("Error archiving messageDict: \(error.localizedDescription)")
-            }            
+                print("RPLidar error \(error.localizedDescription)")
+                self.reconnect()
+            }
         }
     }
-                 
+    
+    
     @objc func mapPulse() {
         
-        //DispatchQueue.global(qos: .userInteractive).async {
-        queue.async {
-            if let map = try? self.rpLidar.getCurrentMap() {
-                self.currentMap = map
-                let data = map.data
-                let width = map.dimension.width
-                let height = map.dimension.height
-                //print("origin = \(map.origin.x), \(map.origin.y)    dim = \(width), \(height)")
-                let imageData = UnsafeMutablePointer<Pixel>.allocate(capacity: Int(width * height))
-                
-                let dataBytes = data.bytes
-                let image = self.mask(from: dataBytes, dataWidth: width, dataHeight: height)
-                DispatchQueue.main.async {
-                    self.rpLidarImageView.image = image
-//                    
-//                    if let yaw = self.rpLidar.pose?.yaw(),
-//                       let location = self.rpLidar.location {
-//                        let polarViewWidth = self.rpLidarPolarView.frame.size.width
-//                        let polarViewHeight = self.rpLidarPolarView.frame.size.height
-//                        
-//                        let x_min = map.origin.x - map.getArea().size.width / 2
-//                        let x_max = map.origin.x + map.getArea().size.width / 2
-//                        let y_min = map.origin.y - map.getArea().size.height / 2
-//                        let y_max = map.origin.y + map.getArea().size.height / 2
-//                        print("x_min \(x_min) x_max \(x_max) y_min \(y_min) y_max \(y_max)")
-//                        
-//                        let delta_x = x_max - x_min
-//                        let delta_y = y_max - y_min
-//                        print("delta_x \(delta_x) delta_y \(delta_y)")
-//                        
-//                        let delta_loc_x = location.x - x_min
-//                        let delta_loc_y = location.y - y_min
-//                        print("delta_loc_x \(delta_loc_x) delta_loc_y \(delta_loc_y)")
-//                        
-//                        let rotationTransform = CGAffineTransformMakeRotation(Double(yaw) - .pi / 2)
-//                        let translationTransform = CGAffineTransformMakeTranslation(460, -40)
-//                        print("x,y = \(location.x), \(location.y) -- map \(map.dimension.width), \(map.dimension.height) -- \(map.origin.x), \(map.origin.y) -- \(map.resolution.x), \(map.resolution.y) -- \(map.getArea().origin.x), \(map.getArea().origin.y) -- \(map.getArea().size.width), \(map.getArea().size.height)")
-//                        
-//                        let transform = CGAffineTransformConcat(rotationTransform, translationTransform)
-//                        let scaleTransfor = CGAffineTransformMakeScale(1.0, -1.0)
-//                        //self.rpLidarImageView.transform = CGAffineTransformConcat(scaleTransfor, transform)
-//                        self.rpLidarPolarView.transform = CGAffineTransformMakeTranslation(460, -40)
-//                    }
+        DispatchQueue.global(qos: .userInteractive).async {
+        //queue.async {
+            do {
+                if let map = try self.rpLidar?.getCurrentMap() {
+                    self.currentMap = map
+                    let data = map.data
+                    let width = map.dimension.width
+                    let height = map.dimension.height
+                    //print("origin = \(map.origin.x), \(map.origin.y)    dim = \(width), \(height)")
+                    let imageData = UnsafeMutablePointer<Pixel>.allocate(capacity: Int(width * height))
+                    
+                    let dataBytes = data.bytes
+                    let image = self.mask(from: dataBytes, dataWidth: width, dataHeight: height)
+                    DispatchQueue.main.async {
+                        self.rpLidarImageView.image = image
+                        //
+                        //                    if let yaw = self.rpLidar.pose?.yaw(),
+                        //                       let location = self.rpLidar.location {
+                        //                        let polarViewWidth = self.rpLidarPolarView.frame.size.width
+                        //                        let polarViewHeight = self.rpLidarPolarView.frame.size.height
+                        //
+                        //                        let x_min = map.origin.x - map.getArea().size.width / 2
+                        //                        let x_max = map.origin.x + map.getArea().size.width / 2
+                        //                        let y_min = map.origin.y - map.getArea().size.height / 2
+                        //                        let y_max = map.origin.y + map.getArea().size.height / 2
+                        //                        print("x_min \(x_min) x_max \(x_max) y_min \(y_min) y_max \(y_max)")
+                        //
+                        //                        let delta_x = x_max - x_min
+                        //                        let delta_y = y_max - y_min
+                        //                        print("delta_x \(delta_x) delta_y \(delta_y)")
+                        //
+                        //                        let delta_loc_x = location.x - x_min
+                        //                        let delta_loc_y = location.y - y_min
+                        //                        print("delta_loc_x \(delta_loc_x) delta_loc_y \(delta_loc_y)")
+                        //
+                        //                        let rotationTransform = CGAffineTransformMakeRotation(Double(yaw) - .pi / 2)
+                        //                        let translationTransform = CGAffineTransformMakeTranslation(460, -40)
+                        //                        print("x,y = \(location.x), \(location.y) -- map \(map.dimension.width), \(map.dimension.height) -- \(map.origin.x), \(map.origin.y) -- \(map.resolution.x), \(map.resolution.y) -- \(map.getArea().origin.x), \(map.getArea().origin.y) -- \(map.getArea().size.width), \(map.getArea().size.height)")
+                        //
+                        //                        let transform = CGAffineTransformConcat(rotationTransform, translationTransform)
+                        //                        let scaleTransfor = CGAffineTransformMakeScale(1.0, -1.0)
+                        //                        //self.rpLidarImageView.transform = CGAffineTransformConcat(scaleTransfor, transform)
+                        //                        self.rpLidarPolarView.transform = CGAffineTransformMakeTranslation(460, -40)
+                        //                    }
+                    }
                 }
+            } catch {
+                print("RPLidar getCurrentMap error \(error)")
+                self.reconnect()
             }
+        }
+    }
+    
+    func reconnect() {
+        guard isReconnecting == false else {
+            print("Already attempting to reconnect")
+            return
+        }
+        
+        isReconnecting = true
+        
+        do {
+            try ExceptionCatcher.catchException {
+                // Simulate an Objective-C exception
+                print("RPLidarController(ip: \"192.168.11.1\")")
+                self.rpLidar = nil
+                self.rpLidar = RPLidarController(ip: "192.168.11.1")
+                self.isReconnecting = false
+            }
+        } catch {
+            print("Caught Objective-C exception reconnect: \(error.localizedDescription) -- Attempting to recoonect")
+            self.isReconnecting = false
+            self.queue.asyncAfter(deadline: .now() + 0.5, execute: {
+                self.reconnect()
+            })
         }
     }
     
@@ -195,7 +253,7 @@ class RPLidarViewController: UIViewController {
     
     func storeMap(with locationName: String) {
         if let map = currentMap,
-         let pose = currentPose {
+           let pose = currentPose {
             let current_robotMap = ROBOMap(
                 origin: CGPoint(x: Double(map.origin.x), y: Double(map.origin.y)),
                 dimension: CGSize(width: Double(map.dimension.width), height: Double(map.dimension.height)),
@@ -239,7 +297,7 @@ class RPLidarViewController: UIViewController {
                                   andTimestamp: map.timestamp,
                                   andData: map.data)
                 
-                self.rpLidar.setMap(
+                self.rpLidar?.setMap(
                     rpMap,
                     pose: RPPose(
                         x: Float(map.poseLocationX),
@@ -261,12 +319,12 @@ class RPLidarViewController: UIViewController {
             print("data too small")
             return nil
         }
-
+        
         let width  = Int(dataWidth)
         let height = Int(dataHeight)
-
+        
         let colorSpace = CGColorSpaceCreateDeviceGray()
-
+        
         guard
             data.count >= width * height,
             let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: colorSpace, bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
@@ -274,11 +332,11 @@ class RPLidarViewController: UIViewController {
         else {
             return nil
         }
-
+        
         for index in 0 ..< width * height {
             buffer[index] = data[index]
         }
-
+        
         return context.makeImage().flatMap { UIImage(cgImage: $0) }
     }
 }
