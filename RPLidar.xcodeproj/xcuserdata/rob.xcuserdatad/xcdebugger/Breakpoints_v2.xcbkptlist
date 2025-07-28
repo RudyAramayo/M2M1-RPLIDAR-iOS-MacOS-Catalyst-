@@ -14,8 +14,8 @@
             filePath = "RPLidar/RPLidarViewController.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "251"
-            endingLineNumber = "251"
+            startingLineNumber = "265"
+            endingLineNumber = "265"
             landmarkName = "loadCurrentMap()"
             landmarkType = "7">
          </BreakpointContent>
@@ -30,8 +30,8 @@
             filePath = "RPLidar/RPLidarViewController.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "247"
-            endingLineNumber = "247"
+            startingLineNumber = "261"
+            endingLineNumber = "261"
             landmarkName = "mapStorage()"
             landmarkType = "7">
          </BreakpointContent>
@@ -46,8 +46,8 @@
             filePath = "RPLidar/RPLidarViewController.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "290"
-            endingLineNumber = "290"
+            startingLineNumber = "304"
+            endingLineNumber = "304"
             landmarkName = "restoreMap(with:)"
             landmarkType = "7">
          </BreakpointContent>

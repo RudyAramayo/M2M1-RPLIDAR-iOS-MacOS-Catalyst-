@@ -91,8 +91,8 @@ class RPLidarViewController: UIViewController {
     
     @objc func appStartup() {
         Timer.scheduledTimer(timeInterval: RPLidarViewController.kLidarPulseFrequency, target: self, selector: #selector(lidarPulse), userInfo: nil, repeats: true)
-        //Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapPulseFrequency, target: self, selector: #selector(mapPulse), userInfo: nil, repeats: true)
-        //Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapLocalStorageFrequency, target: self, selector: #selector(mapStorage), userInfo: nil, repeats: true)
+        Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapPulseFrequency, target: self, selector: #selector(mapPulse), userInfo: nil, repeats: true)
+        Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapLocalStorageFrequency, target: self, selector: #selector(mapStorage), userInfo: nil, repeats: true)
     }
     
     @IBAction func clearMapAction() {
@@ -149,10 +149,10 @@ class RPLidarViewController: UIViewController {
                     }
                     
                     //Send the laser points to the network if the option has been enabled
-                    //let messageDict = ["message":dataString,
-                    //                   "sender":"rpLidar"]
-                    //let data = try NSKeyedArchiver.archivedData(withRootObject: messageDict, requiringSecureCoding: false)
-                    //self.autoNetClient.send(data: data)
+                    let messageDict = ["message":dataString,
+                                       "sender":"rpLidar"]
+                    let data = try NSKeyedArchiver.archivedData(withRootObject: messageDict, requiringSecureCoding: false)
+                    self.autoNetClient.send(data: data)
                     //print("sent")
                 }
             } catch {
@@ -173,8 +173,22 @@ class RPLidarViewController: UIViewController {
                     let data = map.data
                     let width = map.dimension.width
                     let height = map.dimension.height
-                    //print("origin = \(map.origin.x), \(map.origin.y)    dim = \(width), \(height)")
-                    let imageData = UnsafeMutablePointer<Pixel>.allocate(capacity: Int(width * height))
+                    print("origin = \(map.origin.x), \(map.origin.y)    dim = \(width), \(height)")
+                    //let imageData = UnsafeMutablePointer<Pixel>.allocate(capacity: Int(width * height))
+                    //Send the laser points to the network if the option has been enabled
+                    //-------
+                    //Send map data
+                    let mapData = String(data: map.data, encoding: .utf8)
+                    print("mapData: \(mapData ?? "nil") - map.data \(map.data)")
+                    let messageDict = [//"map.data":String(data: map.data, encoding: .utf8),
+                        "map.data":map.data,
+                                       "map.width":String(map.dimension.width),
+                                       "map.height":String(map.dimension.height),
+                                       //"message":"mapdata",
+                                       "sender":"rpLidar.map"]
+                    let messageData = try NSKeyedArchiver.archivedData(withRootObject: messageDict, requiringSecureCoding: false)
+                    self.autoNetClient.send(data: messageData)
+                    //-------
                     
                     let dataBytes = data.bytes
                     let image = self.mask(from: dataBytes, dataWidth: width, dataHeight: height)
