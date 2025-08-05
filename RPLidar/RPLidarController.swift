@@ -18,6 +18,7 @@ class RPLidarController: NSObject {
     var currentPose: RPPose?
     var currentLaserPoints: [RPLaserPoint]?
     var currentMap: RPMap?
+    var currentCompositeMap: RPCompositeMap?
     
     init(ip: String) {
         connectionIP = ip
@@ -130,11 +131,23 @@ class RPLidarController: NSObject {
             }
         } catch {
             print("Caught Objective-C exception currentLocation: \(error.localizedDescription)")
-            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentLocation"])
+            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentMap"])
         }
         return currentMap
     }
 
+    func getCompositeMap() throws -> RPCompositeMap? {
+        do {
+            try ExceptionCatcher.catchException { [self] in
+                // Simulate an Objective-C exception
+                self.currentCompositeMap = self.rpSlamwarePlatformProtocol_object?.compositeMap()
+            }
+        } catch {
+            print("Caught Objective-C exception currentLocation: \(error.localizedDescription)")
+            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentCompositeMap"])
+        }
+        return currentCompositeMap
+    }
     
     func setMap(_ map: RPMap?, pose: RPPose?) {
         if let map = map,
