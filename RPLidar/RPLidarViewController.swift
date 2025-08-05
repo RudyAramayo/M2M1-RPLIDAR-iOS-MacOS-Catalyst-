@@ -45,7 +45,13 @@ class RPLidarViewController: UIViewController {
         let destinationHost = NWEndpoint.Host("192.168.11.1")
         let destinationPort = NWEndpoint.Port(rawValue: 1445)!
         let destinationEndpoint = NWEndpoint.hostPort(host: destinationHost, port: destinationPort)
+        //-----
+        //tcp connection to the RPLidar itself
         let connection = NWConnection(to: destinationEndpoint, using: .tcp)
+        //udp connection to the RPLidar itself
+        //let connection = NWConnection(to: destinationEndpoint, using: .udp)
+        //-----
+        
         connection.pathUpdateHandler = { path in
             switch path.status {
             case .satisfied:
@@ -106,8 +112,8 @@ class RPLidarViewController: UIViewController {
     }
     
     @objc func lidarPulse() {
-        DispatchQueue.global(qos: .userInteractive).async {
-        //queue.async {
+        //DispatchQueue.global(qos: .userInteractive).async {
+        queue.async {
             do {
                 var dataString = ""
                 if let location = try self.rpLidar?.getLocation() {
@@ -169,8 +175,8 @@ class RPLidarViewController: UIViewController {
     
     @objc func mapPulse() {
         
-        DispatchQueue.global(qos: .userInteractive).async {
-        //queue.async {
+        //DispatchQueue.global(qos: .userInteractive).async {
+        queue.async {
             do {
                 if let compositeMap = try self.rpLidar?.getCompositeMap() {
                     self.currentCompositeMap = compositeMap
