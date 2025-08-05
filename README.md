@@ -5,3 +5,4 @@ https://www.slamtec.com/en/Support#rplidar-mapper
 
 Works for iOS as well. Will be used in my ROBOKit compilation of apps for the ROB droid.
 
+<img width="1316" height="835" alt="Screenshot 2025-07-30 at 8 02 28 PM" src="https://github.com/user-attachments/assets/32139d18-d4d5-4338-9a7e-6af155fedcb8" />
