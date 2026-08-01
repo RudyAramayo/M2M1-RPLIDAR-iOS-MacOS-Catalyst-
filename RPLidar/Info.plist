@@ -29,12 +29,12 @@
 	</dict>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_roboNet._tcp</string>
+		<string>_robctl._udp</string>
 	</array>
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>Storage of maps</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Networking requirements of the app</string>
+	<string>RPLidar publishes authenticated obstacle scans and maps to the paired Cerebro robot controller.</string>
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>LIDAR</string>
 	<key>UILaunchStoryboardName</key>

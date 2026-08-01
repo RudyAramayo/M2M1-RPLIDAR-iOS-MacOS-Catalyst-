@@ -18,7 +18,14 @@ class RPLidarViewController: UIViewController {
     static let kMapLocalStorageFrequency = 30.0
     
     var rpLidar: RPLidarController?
-    var autoNetClient: AutoNetClient = AutoNetClient(service: "_roboNet._tcp")
+    private let autoNetClient = AutoNetClient(service: AutoNetClient.defaultService)
+    private let telemetrySequenceStore = ROBLidarTelemetrySequenceStore.shared
+    private var publisherDeviceID: UUID?
+    private var runtimeTimers: [Timer] = []
+    private var transportStatusTimer: Timer?
+    private let transportStatusLabel = UILabel()
+    private let pairButton = UIButton(type: .system)
+    private let forgetPairingButton = UIButton(type: .system)
     let distance_filter: Float = 1.0
     let angleFilter: Float = 0.50
     
@@ -84,9 +91,24 @@ class RPLidarViewController: UIViewController {
         connection.start(queue: .global())
         
         
-        autoNetClient.dataDelegate = self
         autoNetClient.start()
+        installTransportControls()
+        refreshPublisherIdentity()
+        refreshTransportStatus()
+        transportStatusTimer = Timer.scheduledTimer(
+            timeInterval: 0.5,
+            target: self,
+            selector: #selector(refreshTransportStatus),
+            userInfo: nil,
+            repeats: true
+        )
         rpLidarImageView.transform = CGAffineTransformMakeScale(1.0, -1.0)
+    }
+
+    deinit {
+        transportStatusTimer?.invalidate()
+        runtimeTimers.forEach { $0.invalidate() }
+        autoNetClient.stop()
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -97,9 +119,12 @@ class RPLidarViewController: UIViewController {
     }
     
     @objc func appStartup() {
-        Timer.scheduledTimer(timeInterval: RPLidarViewController.kLidarPulseFrequency, target: self, selector: #selector(lidarPulse), userInfo: nil, repeats: true)
-        Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapPulseFrequency, target: self, selector: #selector(mapPulse), userInfo: nil, repeats: true)
-        Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapLocalStorageFrequency, target: self, selector: #selector(mapStorage), userInfo: nil, repeats: true)
+        guard runtimeTimers.isEmpty else { return }
+        runtimeTimers = [
+            Timer.scheduledTimer(timeInterval: RPLidarViewController.kLidarPulseFrequency, target: self, selector: #selector(lidarPulse), userInfo: nil, repeats: true),
+            Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapPulseFrequency, target: self, selector: #selector(mapPulse), userInfo: nil, repeats: true),
+            Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapLocalStorageFrequency, target: self, selector: #selector(mapStorage), userInfo: nil, repeats: true)
+        ]
     }
     
     @IBAction func clearMapAction() {
@@ -158,12 +183,7 @@ class RPLidarViewController: UIViewController {
                         self.rpLidarPolarView.setNeedsDisplay()
                     }
                     
-                    //Send the laser points to the network if the option has been enabled
-                    let messageDict = ["message":dataString,
-                                       "sender":"rpLidar"]
-                    let data = try NSKeyedArchiver.archivedData(withRootObject: messageDict, requiringSecureCoding: false)
-                    self.autoNetClient.send(data: data)
-                    //print("sent")
+                    self.publishScan(dataString)
                 }
             } catch {
                 print("RPLidar error \(error.localizedDescription)")
@@ -202,16 +222,11 @@ class RPLidarViewController: UIViewController {
                     //let imageData = UnsafeMutablePointer<Pixel>.allocate(capacity: Int(width * height))
                     //Send the laser points to the network if the option has been enabled
                     //-------
-                    //Send map data
-                    let mapData = String(data: map.data, encoding: .utf8)
-                    print("mapData: \(mapData ?? "nil") - map.data \(map.data)")
-                    let messageDict = [
-                        "map.data":map.data,
-                        "map.width":String(map.dimension.width),
-                        "map.height":String(map.dimension.height),
-                        "sender":"rpLidar.map"]
-                    let messageData = try NSKeyedArchiver.archivedData(withRootObject: messageDict, requiringSecureCoding: false)
-                    self.autoNetClient.send(data: messageData)
+                    self.publishMap(
+                        data: map.data,
+                        width: Int(map.dimension.width),
+                        height: Int(map.dimension.height)
+                    )
                     //-------
                     
                     let dataBytes = data.bytes
@@ -283,6 +298,174 @@ class RPLidarViewController: UIViewController {
                 self.reconnect()
             })
         }
+    }
+
+    private func publishScan(_ payload: String) {
+        guard let deviceID = publisherDeviceID,
+              let sequence = telemetrySequenceStore.next(deviceID: deviceID) else {
+            return
+        }
+        let message = ROBLidarTelemetryMessage.scan(
+            deviceID: deviceID,
+            sequence: sequence,
+            sentAtMilliseconds: Self.currentMilliseconds(),
+            payload: payload
+        )
+        do {
+            autoNetClient.publishLidarTelemetry(try message.encoded())
+        } catch {
+            print("RPLidar scan was not published: \(error.localizedDescription)")
+        }
+    }
+
+    private func publishMap(data: Data, width: Int, height: Int) {
+        guard let deviceID = publisherDeviceID,
+              let sequence = telemetrySequenceStore.next(deviceID: deviceID) else {
+            return
+        }
+        let message = ROBLidarTelemetryMessage.map(
+            deviceID: deviceID,
+            sequence: sequence,
+            sentAtMilliseconds: Self.currentMilliseconds(),
+            data: data,
+            width: width,
+            height: height
+        )
+        do {
+            autoNetClient.publishLidarTelemetry(try message.encoded())
+        } catch {
+            print("RPLidar map was not published: \(error.localizedDescription)")
+        }
+    }
+
+    private static func currentMilliseconds() -> UInt64 {
+        UInt64((Date().timeIntervalSince1970 * 1_000).rounded(.down))
+    }
+
+    private func installTransportControls() {
+        transportStatusLabel.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        transportStatusLabel.textAlignment = .center
+        transportStatusLabel.numberOfLines = 2
+
+        pairButton.setTitle("Pair RPLidar…", for: .normal)
+        pairButton.addTarget(self, action: #selector(showPairingPrompt), for: .touchUpInside)
+
+        forgetPairingButton.setTitle("Forget Local Pairing", for: .normal)
+        forgetPairingButton.addTarget(self, action: #selector(confirmForgetPairing), for: .touchUpInside)
+
+        let stack = UIStackView(arrangedSubviews: [
+            transportStatusLabel,
+            pairButton,
+            forgetPairingButton
+        ])
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 6
+        stack.isLayoutMarginsRelativeArrangement = true
+        stack.layoutMargins = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        stack.backgroundColor = UIColor.black.withAlphaComponent(0.62)
+        stack.layer.cornerRadius = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 210)
+        ])
+    }
+
+    private func refreshPublisherIdentity() {
+        let deviceID = autoNetClient.publisherDeviceID
+        queue.async { [weak self] in
+            self?.publisherDeviceID = deviceID
+        }
+    }
+
+    @objc private func refreshTransportStatus() {
+        let paired = autoNetClient.isPairingConfigured
+        let connected = autoNetClient.isConnected
+        switch (paired, connected) {
+        case (true, true):
+            transportStatusLabel.text = "Cerebro: authenticated\nRole: Lidar publisher"
+            transportStatusLabel.textColor = .systemGreen
+        case (true, false):
+            transportStatusLabel.text = "Cerebro: reconnecting\nRole: Lidar publisher"
+            transportStatusLabel.textColor = .systemYellow
+        case (false, _):
+            transportStatusLabel.text = "Cerebro: not paired\nPublishing disabled"
+            transportStatusLabel.textColor = .systemRed
+        }
+        pairButton.setTitle(paired ? "Replace Pairing…" : "Pair RPLidar…", for: .normal)
+        forgetPairingButton.isEnabled = paired
+    }
+
+    @objc private func showPairingPrompt() {
+        let alert = UIAlertController(
+            title: "Pair RPLidar with Cerebro",
+            message: "In Cerebro, issue a new credential with the Lidar Publisher role, then paste the complete ROBCTL2 code here. Operator-controller credentials are rejected.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = AutoNetClient.pairingCodeFormat
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            field.spellCheckingType = .no
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Pair", style: .default) { [weak self, weak alert] _ in
+            guard let self else { return }
+            let code = alert?.textFields?.first?.text?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !code.isEmpty else {
+                self.presentTransportNotice(
+                    title: "Pairing code required",
+                    message: "Paste the complete ROBCTL2 code issued by Cerebro."
+                )
+                return
+            }
+            var error: NSError?
+            guard self.autoNetClient.installPairingCode(code, error: &error) else {
+                self.presentTransportNotice(
+                    title: "Pairing rejected",
+                    message: error?.localizedDescription ?? "Cerebro pairing credential was invalid."
+                )
+                return
+            }
+            self.refreshPublisherIdentity()
+            self.refreshTransportStatus()
+        })
+        present(alert, animated: true)
+    }
+
+    @objc private func confirmForgetPairing() {
+        let alert = UIAlertController(
+            title: "Forget local pairing?",
+            message: "This removes the credential from this app. To revoke it for every copy, revoke the device in Cerebro.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Forget", style: .destructive) { [weak self] _ in
+            guard let self else { return }
+            var error: NSError?
+            guard self.autoNetClient.removePairingCode(&error) else {
+                self.presentTransportNotice(
+                    title: "Unable to forget pairing",
+                    message: error?.localizedDescription ?? "The local Keychain entry could not be removed."
+                )
+                return
+            }
+            self.refreshPublisherIdentity()
+            self.refreshTransportStatus()
+        })
+        present(alert, animated: true)
+    }
+
+    private func presentTransportNotice(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
     
     @objc func mapStorage() {
@@ -383,13 +566,6 @@ class RPLidarViewController: UIViewController {
     }
 }
 
-extension RPLidarViewController: AutoNetClientDataDelegate {
-    func didReceiveData(_ data: NSData) {
-        //Parse incomming commands here...
-    }
-}
-
-
 public struct Pixel {
     public var value: UInt32
     
@@ -458,4 +634,3 @@ struct ROBOMap: Codable {
     let posePitch: Double
     let poseRoll: Double
 }
-

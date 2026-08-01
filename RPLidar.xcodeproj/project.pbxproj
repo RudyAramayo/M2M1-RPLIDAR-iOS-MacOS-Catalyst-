@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1D4A1023C5A000100000001 /* ROBLidarTelemetryProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D4A1013C5A000100000001 /* ROBLidarTelemetryProtocol.swift */; };
 		D440478C27188C5E00DF41EF /* SlamwareSDK.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D440478B27188C5E00DF41EF /* SlamwareSDK.framework */; };
 		D443B2BF2AC8BF64008A703A /* BitmapImage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D443B2BD2AC8BF64008A703A /* BitmapImage.cpp */; };
 		D443B2C22AC8BFF6008A703A /* BitmapImageWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = D443B2C12AC8BFF6008A703A /* BitmapImageWrapper.mm */; };
@@ -77,6 +78,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1D4A1013C5A000100000001 /* ROBLidarTelemetryProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ROBLidarTelemetryProtocol.swift; sourceTree = "<group>"; };
 		D440478B27188C5E00DF41EF /* SlamwareSDK.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = SlamwareSDK.framework; sourceTree = "<group>"; };
 		D443B2BB2AC8BEA9008A703A /* bitmap_image.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = bitmap_image.hpp; sourceTree = "<group>"; };
 		D443B2BC2AC8BF64008A703A /* RPLidar-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "RPLidar-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -146,6 +148,7 @@
 		D47643A3270D02300032A370 /* RPLidar */ = {
 			isa = PBXGroup;
 			children = (
+				A1D4A1013C5A000100000001 /* ROBLidarTelemetryProtocol.swift */,
 				D48CDCC02E049750001A43B0 /* RPLidar.entitlements */,
 				D47643A4270D02300032A370 /* AppDelegate.swift */,
 				D4AF56282E3583E800DA4EF0 /* ExceptionCatcher.h */,
@@ -289,6 +292,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1D4A1023C5A000100000001 /* ROBLidarTelemetryProtocol.swift in Sources */,
 				D443B2BF2AC8BF64008A703A /* BitmapImage.cpp in Sources */,
 				D4D15923280217D200AFFA1E /* AutoNetDataTransferProtocol.swift in Sources */,
 				D4D15925280217D200AFFA1E /* AutoNetClient.swift in Sources */,
