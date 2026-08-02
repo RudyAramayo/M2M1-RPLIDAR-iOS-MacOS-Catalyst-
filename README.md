@@ -19,6 +19,19 @@ sent. There is no automatic plaintext or `_roboNet._tcp` fallback.
 4. Revoke the device in Cerebro when retiring or replacing it. **Forget Local
    Pairing** only removes this app's local Keychain copy; it is not revocation.
 
+If Cerebro reports that it replaced or migrated its server certificate, every
+RPLidar credential that pinned the previous certificate must be re-enrolled.
+In Cerebro, revoke the old RPLidar entry and issue a fresh **Lidar Publisher**
+code. In RPLidar, choose **Replace Pairing…** and paste the new code. Certificate
+pin or explicit credential rejection now stops automatic retries and displays
+**re-pair required** instead of remaining indefinitely at **reconnecting**.
+
+`ROB_CONTROL_PAIRING_SECRET` remains available as a startup-only developer
+bootstrap when this app has never had a Keychain credential. A stored Keychain
+code is always authoritative, and either **Replace Pairing…** or **Forget Local
+Pairing** permanently disables environment bootstrap. An old Xcode
+launch-scheme value therefore cannot restore or overwrite a credential later.
+
 The bundled SlamwareSDK framework contains iPhoneOS armv7/arm64 slices and
 imports UIKit. The project builds for iOS and can run on supported Apple-silicon
 Macs as an iPad/iPhone app, but it is not a native macOS or true Mac Catalyst

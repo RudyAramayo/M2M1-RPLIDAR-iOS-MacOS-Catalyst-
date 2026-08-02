@@ -384,20 +384,26 @@ class RPLidarViewController: UIViewController {
 
     @objc private func refreshTransportStatus() {
         let paired = autoNetClient.isPairingConfigured
+        let stored = autoNetClient.hasStoredPairing
         let connected = autoNetClient.isConnected
-        switch (paired, connected) {
-        case (true, true):
+        if autoNetClient.pairingNeedsReplacement {
+            transportStatusLabel.text = "Cerebro: re-pair required\nCertificate or code rejected"
+            transportStatusLabel.textColor = .systemRed
+        } else if paired && connected {
             transportStatusLabel.text = "Cerebro: authenticated\nRole: Lidar publisher"
             transportStatusLabel.textColor = .systemGreen
-        case (true, false):
+        } else if paired {
             transportStatusLabel.text = "Cerebro: reconnecting\nRole: Lidar publisher"
             transportStatusLabel.textColor = .systemYellow
-        case (false, _):
+        } else if stored {
+            transportStatusLabel.text = "Cerebro: pairing invalid\nReplace or forget pairing"
+            transportStatusLabel.textColor = .systemRed
+        } else {
             transportStatusLabel.text = "Cerebro: not paired\nPublishing disabled"
             transportStatusLabel.textColor = .systemRed
         }
-        pairButton.setTitle(paired ? "Replace Pairing…" : "Pair RPLidar…", for: .normal)
-        forgetPairingButton.isEnabled = paired
+        pairButton.setTitle(stored ? "Replace Pairing…" : "Pair RPLidar…", for: .normal)
+        forgetPairingButton.isEnabled = stored
     }
 
     @objc private func showPairingPrompt() {

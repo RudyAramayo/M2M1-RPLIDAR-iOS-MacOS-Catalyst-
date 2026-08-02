@@ -31,6 +31,7 @@ enum AutoNetTransportError: LocalizedError {
   case keychain(OSStatus)
   case randomGeneration(OSStatus)
   case authenticationFailed
+  case credentialRejected
   case roleMismatch(expected: ROBControlPeerRole, actual: ROBControlPeerRole)
 
   var errorDescription: String? {
@@ -46,7 +47,9 @@ enum AutoNetTransportError: LocalizedError {
     case .randomGeneration(let status):
       return "Unable to create a robot-control pairing key (OSStatus \(status))."
     case .authenticationFailed:
-      return "The Cerebro pairing proof was rejected."
+      return "Cerebro authentication did not complete."
+    case .credentialRejected:
+      return "Cerebro rejected this saved Lidar-publisher credential. Replace it with a fresh ROBCTL2 code."
     case .roleMismatch(let expected, let actual):
       return "This app requires a \(expected.rawValue) credential; the supplied credential grants \(actual.rawValue)."
     }
@@ -75,7 +78,9 @@ struct ROBControlCredential: Codable, Equatable {
     return version == 2 && serviceType == ROBControlPairing.serviceType
       && applicationProtocol == ROBControlPairing.applicationProtocol
       && certificateSHA256.count == 32 && sharedSecret.count == 32
-      && (normalizedName == nil || (normalizedName!.count >= 1 && normalizedName!.count <= 80))
+      && (normalizedName == nil
+        || (normalizedName!.count >= 1 && normalizedName!.count <= 80
+          && normalizedName!.rangeOfCharacter(from: .controlCharacters) == nil))
       && (issuedAtMilliseconds == nil || issuedAtMilliseconds! > 0)
   }
 
@@ -123,6 +128,8 @@ struct ROBControlCredential: Codable, Equatable {
   private static let keychainService = "com.orbitusrobotics.robctl.v2"
   private static let clientProfileAccount = "paired-cerebro-profile"
   private static let environmentKey = "ROB_CONTROL_PAIRING_SECRET"
+  private static let environmentBootstrapCompletedKey =
+    "com.orbitusrobotics.robctl.v2.environment-bootstrap-completed"
   private static let pairingPrefix = "ROBCTL2:"
   private static let verifyQueue = DispatchQueue(label: "com.orbitusrobotics.robctl.v2.verify")
 
@@ -131,9 +138,28 @@ struct ROBControlCredential: Codable, Equatable {
     return credential.isValid && credential.effectiveRole == requiredClientRole
   }
 
+  /// True when a local Keychain item exists even if it is malformed, legacy,
+  /// or has the wrong role. The UI uses this to keep replacement and removal
+  /// available for credentials that cannot be used for a connection.
+  public static var hasStoredCredential: Bool {
+    do {
+      return try loadData(account: clientProfileAccount) != nil
+    } catch {
+      return true
+    }
+  }
+
   /// Installs a code transferred directly from Cerebro. Replacing a code
-  /// intentionally revokes the previous pairing on this device.
+  /// removes the previous local pairing; server-side revocation remains an
+  /// explicit action in Cerebro.
   public static func installPairingCode(_ code: String) throws {
+    let credential = try decodePairingCode(code)
+    try validatePublisherCredential(credential)
+    disableEnvironmentBootstrap()
+    try storeCredential(credential, account: clientProfileAccount)
+  }
+
+  static func decodePairingCode(_ code: String) throws -> ROBControlCredential {
     let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmed.range(of: pairingPrefix, options: [.anchored, .caseInsensitive]) != nil else {
       throw AutoNetTransportError.invalidPairingCode
@@ -149,11 +175,11 @@ struct ROBControlCredential: Codable, Equatable {
     else {
       throw AutoNetTransportError.invalidPairingCode
     }
-    try validatePublisherCredential(credential)
-    try storeCredential(credential, account: clientProfileAccount)
+    return credential
   }
 
   public static func removePairing() throws {
+    disableEnvironmentBootstrap()
     let status = SecItemDelete(genericQuery(account: clientProfileAccount) as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else {
       throw AutoNetTransportError.keychain(status)
@@ -161,16 +187,49 @@ struct ROBControlCredential: Codable, Equatable {
   }
 
   static func clientAuthenticationMaterial() throws -> ROBControlCredential {
-    if let code = ProcessInfo.processInfo.environment[environmentKey],
-      !code.isEmpty,
-      code.uppercased().hasPrefix(pairingPrefix)
-    {
-      try installPairingCode(code)
-    }
-    guard let credential = try loadCredential(account: clientProfileAccount), credential.isValid
-    else {
+    guard let credential = try loadCredential(account: clientProfileAccount) else {
       throw AutoNetTransportError.pairingRequired
     }
+    try validatePublisherCredential(credential)
+    return credential
+  }
+
+  /// Imports the developer launch-scheme credential, at most once, before
+  /// discovery starts. Normal credential reads never write to Keychain.
+  /// Explicit Pair or Forget actions permanently disable this bootstrap.
+  static func bootstrapEnvironmentCredentialIfNeeded() throws {
+    let storedCredential = try loadCredential(account: clientProfileAccount)
+    if let storedCredential {
+      disableEnvironmentBootstrap()
+      try validatePublisherCredential(storedCredential)
+      return
+    }
+
+    let candidate = try environmentBootstrapCredential(
+      storedCredential: nil,
+      environmentCode: ProcessInfo.processInfo.environment[environmentKey],
+      bootstrapAllowed: !UserDefaults.standard.bool(forKey: environmentBootstrapCompletedKey)
+    )
+    guard let candidate else { return }
+    try storeCredential(candidate, account: clientProfileAccount)
+    disableEnvironmentBootstrap()
+  }
+
+  /// Pure selection helper used by the standalone migration fixture.
+  static func environmentBootstrapCredential(
+    storedCredential: ROBControlCredential?,
+    environmentCode: String?,
+    bootstrapAllowed: Bool
+  ) throws -> ROBControlCredential? {
+    guard storedCredential == nil,
+      bootstrapAllowed,
+      let environmentCode,
+      !environmentCode.isEmpty,
+      environmentCode.uppercased().hasPrefix(pairingPrefix)
+    else {
+      return nil
+    }
+    let credential = try decodePairingCode(environmentCode)
     try validatePublisherCredential(credential)
     return credential
   }
@@ -229,9 +288,35 @@ struct ROBControlCredential: Codable, Equatable {
 
   static func robotID(fromBonjourMetadata metadata: NWBrowser.Result.Metadata) -> UUID? {
     guard case .bonjour(let txtRecord) = metadata,
+      txtRecord["ver"] == "2",
+      txtRecord["alpn"] == applicationProtocol,
       let string = txtRecord["robot_id"]
     else { return nil }
     return UUID(uuidString: string)
+  }
+
+  static func requiresPairingReplacement(after error: Error) -> Bool {
+    if let transportError = error as? AutoNetTransportError {
+      switch transportError {
+      case .credentialRejected:
+        return true
+      default:
+        break
+      }
+    }
+    if let networkError = error as? NWError {
+      switch networkError {
+      case .tls:
+        return true
+      default:
+        break
+      }
+    }
+    return false
+  }
+
+  private static func disableEnvironmentBootstrap() {
+    UserDefaults.standard.set(true, forKey: environmentBootstrapCompletedKey)
   }
 
   private static func framedQUICParameters(options: NWProtocolQUIC.Options) -> NWParameters {

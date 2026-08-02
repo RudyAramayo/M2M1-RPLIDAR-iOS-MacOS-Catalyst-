@@ -1,4 +1,6 @@
 import Foundation
+import Network
+import Security
 
 enum FixtureFailure: Error, CustomStringConvertible {
     case failed(String)
@@ -14,6 +16,7 @@ enum FixtureFailure: Error, CustomStringConvertible {
 struct ROBLidarTelemetryProtocolFixtureTests {
     static func main() throws {
         try credentialRoleFixtures()
+        try certificateMigrationFixtures()
         try telemetryFixtures()
         try sequenceFixtures()
         guard DataMessageType.lidarTelemetry.rawValue == 7 else {
@@ -50,6 +53,83 @@ struct ROBLidarTelemetryProtocolFixtureTests {
               decoded.role == .lidarPublisher,
               decoded.deviceName == "Fixture RPLidar" else {
             throw FixtureFailure.failed("Role-scoped credential did not round-trip")
+        }
+
+        let controlCharacterName = credential(
+            role: .lidarPublisher,
+            deviceName: "Fixture\nRPLidar"
+        )
+        guard !controlCharacterName.isValid else {
+            throw FixtureFailure.failed("Credential accepted control characters in deviceName")
+        }
+    }
+
+    private static func certificateMigrationFixtures() throws {
+        let robotID = UUID(uuidString: "b3d5723a-f350-41aa-80b9-f26af02dc7a1")!
+        let controllerID = UUID(uuidString: "a09fd941-ac67-420b-97e3-64aed9d90cdb")!
+        let replacementFingerprint = Data((0..<32).map(UInt8.init))
+        let replacementSecret = Data((32..<64).map(UInt8.init))
+        let payload: [String: Any] = [
+            "version": 2,
+            "robotID": robotID.uuidString,
+            "controllerID": controllerID.uuidString,
+            "serviceType": ROBControlPairing.serviceType,
+            "applicationProtocol": ROBControlPairing.applicationProtocol,
+            "certificateSHA256": replacementFingerprint.base64EncodedString(),
+            "sharedSecret": replacementSecret.base64EncodedString(),
+            "role": ROBControlPeerRole.lidarPublisher.rawValue,
+            "deviceName": "Migration Fixture RPLidar",
+            "issuedAtMilliseconds": 2_000_000,
+        ]
+        let payloadData = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let replacementCode = "ROBCTL2:\(payloadData.base64EncodedString())"
+        let decoded = try ROBControlPairing.decodePairingCode(replacementCode)
+        guard decoded.robotID == robotID,
+              decoded.controllerID == controllerID,
+              decoded.certificateSHA256 == replacementFingerprint,
+              decoded.sharedSecret == replacementSecret,
+              decoded.effectiveRole == .lidarPublisher else {
+            throw FixtureFailure.failed("Fresh Cerebro replacement code did not decode")
+        }
+
+        let stored = credential(role: .lidarPublisher)
+        let storedBootstrap = try ROBControlPairing.environmentBootstrapCredential(
+            storedCredential: stored,
+            environmentCode: replacementCode,
+            bootstrapAllowed: true
+        )
+        guard storedBootstrap == nil else {
+            throw FixtureFailure.failed("Environment code overrode the Keychain credential")
+        }
+
+        let bootstrapped = try ROBControlPairing.environmentBootstrapCredential(
+            storedCredential: nil,
+            environmentCode: replacementCode,
+            bootstrapAllowed: true
+        )
+        guard bootstrapped == decoded else {
+            throw FixtureFailure.failed("One-time environment bootstrap did not select its credential")
+        }
+
+        let disabledBootstrap = try ROBControlPairing.environmentBootstrapCredential(
+            storedCredential: nil,
+            environmentCode: replacementCode,
+            bootstrapAllowed: false
+        )
+        guard disabledBootstrap == nil else {
+            throw FixtureFailure.failed("Explicit Pair or Forget did not disable environment bootstrap")
+        }
+
+        guard ROBControlPairing.requiresPairingReplacement(
+                after: AutoNetTransportError.credentialRejected
+              ),
+              ROBControlPairing.requiresPairingReplacement(
+                after: NWError.tls(errSSLPeerHandshakeFail)
+              ),
+              !ROBControlPairing.requiresPairingReplacement(
+                after: AutoNetTransportError.pairingRequired
+              ) else {
+            throw FixtureFailure.failed("Certificate or credential rejection was not classified")
         }
     }
 
@@ -146,7 +226,10 @@ struct ROBLidarTelemetryProtocolFixtureTests {
         }
     }
 
-    private static func credential(role: ROBControlPeerRole?) -> ROBControlCredential {
+    private static func credential(
+        role: ROBControlPeerRole?,
+        deviceName: String = "Fixture RPLidar"
+    ) -> ROBControlCredential {
         ROBControlCredential(
             version: 2,
             robotID: UUID(),
@@ -156,7 +239,7 @@ struct ROBLidarTelemetryProtocolFixtureTests {
             certificateSHA256: Data(repeating: 0x11, count: 32),
             sharedSecret: Data(repeating: 0x22, count: 32),
             role: role,
-            deviceName: "Fixture RPLidar",
+            deviceName: deviceName,
             issuedAtMilliseconds: 1_999_000
         )
     }

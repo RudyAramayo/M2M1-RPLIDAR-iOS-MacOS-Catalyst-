@@ -31,6 +31,7 @@ final class AutoNetClientConnection {
 
     weak var delegate: AutoNetClientConnectionDelegate?
     var readinessDidChangeCallback: ((Bool) -> Void)?
+    var transportErrorCallback: ((Error) -> Void)?
     var didStopCallback: ((Error?) -> Void)?
 
     private var hasStarted = false
@@ -70,6 +71,7 @@ final class AutoNetClientConnection {
         case .waiting(let error):
             print("client: connection waiting - \(error)")
             setReady(false)
+            transportErrorCallback?(error)
         case .ready:
             switch authenticationState {
             case .transportConnecting:
@@ -159,6 +161,10 @@ final class AutoNetClientConnection {
 
         switch authenticationState {
         case .awaitingChallenge:
+            if type == .pairingRejected {
+                stopLocked(error: AutoNetTransportError.credentialRejected)
+                return
+            }
             guard type == .pairingChallenge,
                   let challenge = ROBControlAuthChallenge(data),
                   challenge.robotID == credential.robotID else {
@@ -177,6 +183,10 @@ final class AutoNetClientConnection {
             }
 
         case .awaitingAccepted(let challenge, let proof):
+            if type == .pairingRejected {
+                stopLocked(error: AutoNetTransportError.credentialRejected)
+                return
+            }
             guard type == .pairingAccepted,
                   let accepted = ROBControlAuthAccepted(data),
                   ROBControlAuthenticator.validate(accepted, proof: proof, challenge: challenge, credential: credential) else {
@@ -260,6 +270,7 @@ final class AutoNetClientConnection {
         let callback = didStopCallback
         didStopCallback = nil
         readinessDidChangeCallback = nil
+        transportErrorCallback = nil
         callback?(error)
     }
 }

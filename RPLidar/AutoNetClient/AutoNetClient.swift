@@ -26,6 +26,8 @@ import Network
     public var service: String? = ""
     public var browser: NWBrowser?
     public var isConnected = false
+    public private(set) var pairingNeedsReplacement = false
+    public private(set) var lastTransportErrorDescription: String?
     public var dataDelegate: AutoNetClientDataDelegate?
 
     private var generation: UInt64 = 0
@@ -39,6 +41,7 @@ import Network
             print("RPLidar publisher refused unsupported Bonjour service: \(service)")
             return
         }
+        Self.bootstrapPairingIfNeeded()
         startBrowsing()
     }
 
@@ -47,6 +50,7 @@ import Network
         self.port = NWEndpoint.Port(rawValue: port)
         self.service = nil
         super.init()
+        Self.bootstrapPairingIfNeeded()
         performOnMain { [weak self] in
             self?.beginManualConnection(startImmediately: false, resetBackoff: true)
         }
@@ -66,6 +70,8 @@ import Network
             errorPointer?.pointee = nil
             performOnMain { [weak self] in
                 guard let self else { return }
+                self.pairingNeedsReplacement = false
+                self.lastTransportErrorDescription = nil
                 if self.service != nil {
                     self.beginBrowsing(resetBackoff: true)
                 } else {
@@ -91,6 +97,8 @@ import Network
                       self.service == nil || self.service == Self.defaultService else {
                     return
                 }
+                self.pairingNeedsReplacement = false
+                self.lastTransportErrorDescription = nil
                 self.stop()
             }
             return true
@@ -101,11 +109,17 @@ import Network
     }
 
     public var pairingStatus: String {
-        ROBControlPairing.isPaired ? "paired" : "not_paired"
+        if pairingNeedsReplacement { return "replacement_required" }
+        if ROBControlPairing.isPaired { return "paired" }
+        return ROBControlPairing.hasStoredCredential ? "invalid_pairing" : "not_paired"
     }
 
     public var isPairingConfigured: Bool {
         ROBControlPairing.isPaired
+    }
+
+    public var hasStoredPairing: Bool {
+        ROBControlPairing.hasStoredCredential
     }
 
     public var publisherDeviceID: UUID? {
@@ -170,6 +184,10 @@ import Network
 
     private func beginBrowsing(resetBackoff: Bool) {
         precondition(Thread.isMainThread)
+        guard !pairingNeedsReplacement else {
+            isConnected = false
+            return
+        }
         guard let service, service == Self.defaultService else {
             isConnected = false
             print("RPLidar publisher supports only \(Self.defaultService)")
@@ -181,6 +199,7 @@ import Network
             mode = try AutoNetTransportMode(service: service)
         } catch {
             isConnected = false
+            recordTransportError(error)
             print("client: \(error.localizedDescription)")
             return
         }
@@ -215,6 +234,7 @@ import Network
                       self.generation == currentGeneration,
                       self.browser === newBrowser else { return }
                 if case .failed(let error) = state {
+                    self.recordTransportError(error)
                     print("client: browser failed - \(error)")
                     newBrowser.cancel()
                     self.browser = nil
@@ -253,6 +273,10 @@ import Network
 
     private func beginManualConnection(startImmediately: Bool, resetBackoff: Bool) {
         precondition(Thread.isMainThread)
+        guard !pairingNeedsReplacement else {
+            isConnected = false
+            return
+        }
         guard let host, let port else { return }
 
         isExplicitlyStopped = false
@@ -277,6 +301,7 @@ import Network
                 startImmediately: startImmediately
             )
         } catch {
+            recordTransportError(error)
             print("client: manual QUIC connection not started - \(error.localizedDescription)")
         }
     }
@@ -301,6 +326,7 @@ import Network
             )
         } catch {
             // Pairing/authentication failure is terminal for this attempt.
+            recordTransportError(error)
             print("client: connection not started - \(error.localizedDescription)")
         }
     }
@@ -327,11 +353,26 @@ import Network
                       self.connection === clientConnection else { return }
                 self.isConnected = ready
                 if ready {
+                    self.pairingNeedsReplacement = false
+                    self.lastTransportErrorDescription = nil
                     self.reconnectAttempt = 0
                     self.browser?.stateUpdateHandler = nil
                     self.browser?.browseResultsChangedHandler = nil
                     self.browser?.cancel()
                     self.browser = nil
+                }
+            }
+        }
+
+        clientConnection.transportErrorCallback = { [weak self, weak clientConnection] error in
+            DispatchQueue.main.async {
+                guard let self,
+                      let clientConnection,
+                      self.generation == currentGeneration,
+                      self.connection === clientConnection else { return }
+                self.recordTransportError(error)
+                if self.pairingNeedsReplacement {
+                    clientConnection.stop()
                 }
             }
         }
@@ -345,8 +386,10 @@ import Network
                 self.isConnected = false
                 self.connection = nil
                 if let error {
+                    self.recordTransportError(error)
                     print("client: connection stopped - \(error.localizedDescription)")
                 }
+                guard !self.pairingNeedsReplacement else { return }
                 self.scheduleReconnect(expectedGeneration: currentGeneration)
             }
         }
@@ -359,7 +402,9 @@ import Network
 
     private func scheduleReconnect(expectedGeneration: UInt64) {
         precondition(Thread.isMainThread)
-        guard !isExplicitlyStopped, generation == expectedGeneration else { return }
+        guard !isExplicitlyStopped,
+              !pairingNeedsReplacement,
+              generation == expectedGeneration else { return }
 
         let exponent = min(reconnectAttempt, 5)
         let delay = min(pow(2.0, Double(exponent)), 30.0) + Double.random(in: 0...0.5)
@@ -368,6 +413,7 @@ import Network
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self,
                   !self.isExplicitlyStopped,
+                  !self.pairingNeedsReplacement,
                   self.generation == expectedGeneration,
                   self.connection == nil else { return }
             if self.service == nil {
@@ -375,6 +421,22 @@ import Network
             } else {
                 self.beginBrowsing(resetBackoff: false)
             }
+        }
+    }
+
+    private func recordTransportError(_ error: Error) {
+        precondition(Thread.isMainThread)
+        lastTransportErrorDescription = error.localizedDescription
+        if ROBControlPairing.requiresPairingReplacement(after: error) {
+            pairingNeedsReplacement = true
+        }
+    }
+
+    private static func bootstrapPairingIfNeeded() {
+        do {
+            try ROBControlPairing.bootstrapEnvironmentCredentialIfNeeded()
+        } catch {
+            print("client: developer pairing bootstrap failed - \(error.localizedDescription)")
         }
     }
 
