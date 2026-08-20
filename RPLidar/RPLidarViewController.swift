@@ -164,12 +164,14 @@ class RPLidarViewController: UIViewController {
                     var filteredLaserPoints: [RPLaserPoint] = []
                     
                     for laserPoint in laserPoints {
-                        if laserPoint.valid &&
-                            laserPoint.distance < self.distance_filter &&
-                            ((laserPoint.angle < self.angleFilter  &&
-                              laserPoint.angle > -self.angleFilter) || (laserPoint.angle > Float.pi - self.angleFilter  &&
-                                                                        laserPoint.angle < Float.pi) || (laserPoint.angle < -Float.pi + self.angleFilter  &&
-                                                                                                         laserPoint.angle > -Float.pi)) {
+                        if laserPoint.valid
+                            //&&
+                            //laserPoint.distance < self.distance_filter &&
+                            //((laserPoint.angle < self.angleFilter  &&
+                            //  laserPoint.angle > -self.angleFilter) || (laserPoint.angle > Float.pi - self.angleFilter  &&
+                            //                                            laserPoint.angle < Float.pi) || (laserPoint.angle < -Float.pi + self.angleFilter  &&
+                            //                                                                             laserPoint.angle > -Float.pi))
+                        {
                             filteredLaserPoints.append(laserPoint)
                             dataString += "\(laserPoint.distance):\(laserPoint.angle)\n"
                         }
@@ -474,12 +476,25 @@ class RPLidarViewController: UIViewController {
         present(alert, animated: true)
     }
     
+    func getCurrentLocationName() -> String {
+        if let networkStatus = rpLidar?.networkStatus,
+           let ssid = networkStatus["ssid"], !ssid.isEmpty {
+            return ssid
+        }
+        return "HOME"
+    }
+    
     @objc func mapStorage() {
-        storeMap(with: "HOME")
+        storeMap(with: getCurrentLocationName())
     }
     
     @objc func loadCurrentMap() {
-        restoreMap(with: "HOME")
+        let locationName = getCurrentLocationName()
+        restoreMap(with: locationName)
+        // Optionally trigger recover localization after loading the map
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.rpLidar?.recoverLocalization()
+        }
     }
     
     func storeMap(with locationName: String) {
@@ -558,7 +573,7 @@ class RPLidarViewController: UIViewController {
         
         guard
             data.count >= width * height,
-            let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: colorSpace, bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
+            let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: colorSpace, bitmapInfo: CGImageAlphaInfo.none.rawValue),
             let buffer = context.data?.bindMemory(to: UInt8.self, capacity: width * height)
         else {
             return nil

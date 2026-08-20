@@ -20,6 +20,16 @@
             *error = [[NSError alloc] initWithDomain:exception.name code:0 userInfo:exception.userInfo];
         }
         return NO;
+    } @catch (id exception) {
+        if (error) {
+            *error = [[NSError alloc] initWithDomain:@"UnknownObjCException" code:-1 userInfo:nil];
+        }
+        return NO;
+    } @catch (...) {
+        if (error) {
+            *error = [[NSError alloc] initWithDomain:@"UnknownCPlusPlusException" code:-2 userInfo:nil];
+        }
+        return NO;
     }
 }
 

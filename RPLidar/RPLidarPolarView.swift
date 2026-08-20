@@ -46,47 +46,37 @@ class RPLidarPolarView: UIView {
         
         if let map = map,
            let currentLocation = currentLocation {
-            //print("x,y = \(currentLocation.x), \(currentLocation.y) -- map \(map.dimension.width), \(map.dimension.height) -- \(map.origin.x), \(map.origin.y) -- \(map.resolution.x), \(map.resolution.y) -- \(map.getArea().origin.x), \(map.getArea().origin.y) -- \(map.getArea().size.width), \(map.getArea().size.height)")
-            let mapOriginX = map.origin.x //-8.69
-            let mapOriginY = map.origin.y //-7.14
-            let mapAreaWidth = map.getArea().size.width //11.2
-            let mapAreaHeight = map.getArea().size.height //10.3
             
-            let mapMinX = mapOriginX - mapAreaWidth // -8.69 - 11.2 = -19.8
-            let mapMaxX = mapOriginX + mapAreaWidth // -8.69 + 11.2 = 2.6
+            let mapMinX = Float(map.origin.x)
+            let mapMinY = Float(map.origin.y)
+            let mapAreaWidth = Float(map.getArea().size.width)
+            let mapAreaHeight = Float(map.getArea().size.height)
             
-            let mapMinY = mapOriginY - mapAreaHeight // -7.14 - 10.3 = -17.7
-            let mapMaxY = mapOriginY + mapAreaHeight // -7.14 + 10.3 = 2.9
+            let proportionalX = (currentLocation.x - mapMinX) / mapAreaWidth
+            let proportionalY = (currentLocation.y - mapMinY) / mapAreaHeight
             
-            //let magnitudeMapMinX = 0
-            let magnitudeMapMaxX = mapMaxX - mapMinX // 2.6 - -19.8 = 22.4
+            let imageRatio = CGFloat(map.dimension.width) / CGFloat(map.dimension.height)
+            let viewRatio = self.bounds.width / self.bounds.height
             
-            //let magnitudeMapMinY = 0
-            let magnitudeMapMaxY = mapMaxY - mapMinY // 2.9 - -17.7 = 20.6
+            var renderRect = self.bounds
+            if imageRatio > viewRatio {
+                renderRect.size.height = self.bounds.width / imageRatio
+                renderRect.origin.y = (self.bounds.height - renderRect.height) / 2
+            } else {
+                renderRect.size.width = self.bounds.height * imageRatio
+                renderRect.origin.x = (self.bounds.width - renderRect.width) / 2
+            }
             
-            //print("magMapMaxX = (0,\(magnitudeMapMaxX))")
-            //print("magMapMaxY = (0,\(magnitudeMapMaxY))")
-            
-            let abs_currentPosDeltaX = (currentLocation.x - mapMinX) / magnitudeMapMaxX
-            let abs_currentPosDeltaY = (currentLocation.y - mapMinY) / magnitudeMapMaxY
-            
-            //print("(magPosX/magPosY) = \(abs_currentPosDeltaX), \(abs_currentPosDeltaY)")
-            
-            let frameWidth = self.frame.size.width
-            let frameHeight = self.frame.size.height
-            
-            let pixelX = Int(abs_currentPosDeltaX * Float(frameWidth))
-            let pixelY = Int(abs_currentPosDeltaY * Float(frameHeight))
+            let pixelX = renderRect.origin.x + renderRect.width * CGFloat(proportionalX)
+            let pixelY = renderRect.origin.y + renderRect.height * CGFloat(1.0 - proportionalY)
             
             currentContext.setStrokeColor(UIColor.red.cgColor)
             currentContext.setFillColor(UIColor.blue.cgColor)
             currentContext.setLineWidth(4)
-            let sizeX_over2 = 30
-            let sizeY_over2 = 30
-            currentContext.addEllipse(in: CGRect(x:Int(frameWidth)-pixelX-sizeX_over2, y: /*Int(frameHeight)-*/pixelY-sizeY_over2, width: sizeX_over2, height: sizeY_over2))
+            let sizeX_over2: CGFloat = 15.0
+            let sizeY_over2: CGFloat = 15.0
+            currentContext.addEllipse(in: CGRect(x: pixelX - sizeX_over2, y: pixelY - sizeY_over2, width: sizeX_over2 * 2, height: sizeY_over2 * 2))
             currentContext.drawPath(using: .fillStroke)
-            
-            //print("pixel = \(pixelX), \(pixelY)")
         }
         
         currentContext.setStrokeColor(UIColor.white.cgColor)

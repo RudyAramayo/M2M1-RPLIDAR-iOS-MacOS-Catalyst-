@@ -14,9 +14,9 @@
             filePath = "RPLidar/RPLidarViewController.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "293"
-            endingLineNumber = "293"
-            landmarkName = "loadCurrentMap()"
+            startingLineNumber = "295"
+            endingLineNumber = "295"
+            landmarkName = "reconnect()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -30,9 +30,9 @@
             filePath = "RPLidar/RPLidarViewController.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "289"
-            endingLineNumber = "289"
-            landmarkName = "mapStorage()"
+            startingLineNumber = "291"
+            endingLineNumber = "291"
+            landmarkName = "reconnect()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -46,9 +46,9 @@
             filePath = "RPLidar/RPLidarViewController.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "332"
-            endingLineNumber = "332"
-            landmarkName = "restoreMap(with:)"
+            startingLineNumber = "334"
+            endingLineNumber = "334"
+            landmarkName = "publishMap(data:width:height:)"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -64,7 +64,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "118"
             endingLineNumber = "118"
-            landmarkName = "getMap"
+            landmarkName = "networkStatus"
             landmarkType = "24">
          </BreakpointContent>
       </BreakpointProxy>
@@ -80,7 +80,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "154"
             endingLineNumber = "154"
-            landmarkName = "setMap(_:pose:)"
+            landmarkName = "getCurrentMap()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -110,9 +110,9 @@
             filePath = "RPLidar/RPLidarViewController.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "181"
-            endingLineNumber = "181"
-            landmarkName = "mapPulse()"
+            startingLineNumber = "183"
+            endingLineNumber = "183"
+            landmarkName = "lidarPulse()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -136,7 +136,7 @@
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
             uuid = "E9E1EDA4-8F87-4A8F-9639-90E46BA73298"
-            shouldBeEnabled = "Yes"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "RPLidar/RPLidarPolarView.swift"
@@ -146,6 +146,38 @@
             endingLineNumber = "79"
             landmarkName = "draw(_:)"
             landmarkType = "7">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "82CE6DE1-2A92-4342-B367-1417E8D2D9BA"
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "RPLidar/RPLidarController.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "146"
+            endingLineNumber = "146"
+            landmarkName = "getMap"
+            landmarkType = "24">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "1C565591-CD53-44DE-B9FC-02DE69AE2151"
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "RPLidar/RPLidarController.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "145"
+            endingLineNumber = "145"
+            landmarkName = "getMap"
+            landmarkType = "24">
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>

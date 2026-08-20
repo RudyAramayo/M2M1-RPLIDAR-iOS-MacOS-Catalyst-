@@ -30,25 +30,35 @@ class RPLidarController: NSObject {
     
     /// Clears the 8bit map that the lidar generates internalls
     func clearMap() {
-        rpSlamwarePlatformProtocol_object?.clearMap()
+        do {
+            try ExceptionCatcher.catchException { [weak self] in
+                self?.rpSlamwarePlatformProtocol_object?.clearMap()
+            }
+        } catch {
+            print("Caught Objective-C exception in clearMap: \(error.localizedDescription)")
+        }
     }
     
     /// Toggles the map update engine to update the map. Use this to switch between maps in conjuction with mapLocalization.
     func setMapUpdate(_ mapUpdate:Bool) {
-        rpSlamwarePlatformProtocol_object?.setMapUpdate(mapUpdate)
+        do { try ExceptionCatcher.catchException { [weak self] in self?.rpSlamwarePlatformProtocol_object?.setMapUpdate(mapUpdate) } } catch {}
     }
     /// Turns the map localization engine on/off. Use this to switch between maps in conjunction with mapUpdate.
     func setMapLocalization(_ mapLocalization: Bool) {
-        rpSlamwarePlatformProtocol_object?.setMapLocalization(mapLocalization)
+        do { try ExceptionCatcher.catchException { [weak self] in self?.rpSlamwarePlatformProtocol_object?.setMapLocalization(mapLocalization) } } catch {}
     }
     
     /// Returns an array of available map types from Slamware
     var availableMaps: [NSNumber]? {
-        rpSlamwarePlatformProtocol_object?.availableMaps()
+        var maps: [NSNumber]? = nil
+        do { try ExceptionCatcher.catchException { [weak self] in maps = self?.rpSlamwarePlatformProtocol_object?.availableMaps() as? [NSNumber] } } catch {}
+        return maps
     }
     /// Returns RPLidar pose of the robot, location and rotation
     var pose: RPPose? {
-        rpSlamwarePlatformProtocol_object?.pose()
+        var p: RPPose? = nil
+        do { try ExceptionCatcher.catchException { [weak self] in p = self?.rpSlamwarePlatformProtocol_object?.pose() } } catch {}
+        return p
     }
     
     func getPose() throws -> RPPose? {
@@ -65,11 +75,15 @@ class RPLidarController: NSObject {
     }
     /// Returns localization quality of the RPLidar. 0 the highest quality
     var localiationQuality: Int32? {
-        rpSlamwarePlatformProtocol_object?.localizationQuality()
+        var q: Int32 = 0
+        do { try ExceptionCatcher.catchException { [weak self] in q = self?.rpSlamwarePlatformProtocol_object?.localizationQuality() ?? 0 } } catch {}
+        return q
     }
     /// Returns the current location of the RPLidar
     var location: RPLocation? {
-        rpSlamwarePlatformProtocol_object?.location()
+        var l: RPLocation? = nil
+        do { try ExceptionCatcher.catchException { [weak self] in l = self?.rpSlamwarePlatformProtocol_object?.location() } } catch {}
+        return l
     }
     
     func getLocation() throws -> RPLocation? {
@@ -102,11 +116,21 @@ class RPLidarController: NSObject {
 
     /// Returns the network status of the RPLidar
     var networkStatus: [String: String]? {
-        rpSlamwarePlatformProtocol_object?.getNetworkStatus()
+        var status: [String: String]? = nil
+        do {
+            try ExceptionCatcher.catchException { [weak self] in
+                status = self?.rpSlamwarePlatformProtocol_object?.getNetworkStatus() as? [String: String]
+            }
+        } catch {
+            print("Caught Objective-C exception in networkStatus: \(error.localizedDescription)")
+        }
+        return status
     }
     /// Returns the composite map of the RPLidar
     var compositeMap: RPCompositeMap? {
-        rpSlamwarePlatformProtocol_object?.compositeMap()
+        var map: RPCompositeMap? = nil
+        do { try ExceptionCatcher.catchException { [weak self] in map = self?.rpSlamwarePlatformProtocol_object?.compositeMap() } } catch {}
+        return map
     }
     /// Returns the status of the RPLidar
     var status: DiscoverStatus? {
@@ -115,10 +139,15 @@ class RPLidarController: NSObject {
     
     /// Returns the RPMap of the known area
     var getMap: RPMap? {
-        if let rpKnownRect = rpSlamwarePlatformProtocol_object?.getKnownArea(of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap) {
-            return rpSlamwarePlatformProtocol_object?.getMapWith(RPMapTypeBitmap8Bit, inArea: rpKnownRect, of: RPMapKindExploreMap)
-        }
-        return nil
+        var map: RPMap? = nil
+        do { 
+            try ExceptionCatcher.catchException { [weak self] in
+                if let rpKnownRect = self?.rpSlamwarePlatformProtocol_object?.getKnownArea(of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap) {
+                    map = self?.rpSlamwarePlatformProtocol_object?.getMapWith(RPMapTypeBitmap8Bit, inArea: rpKnownRect, of: RPMapKindExploreMap)
+                }
+            } 
+        } catch {}
+        return map
     }
     
     func getCurrentMap() throws -> RPMap? {
@@ -152,29 +181,57 @@ class RPLidarController: NSObject {
     func setMap(_ map: RPMap?, pose: RPPose?) {
         if let map = map,
            let pose = pose {
-            rpSlamwarePlatformProtocol_object?.setMapUpdate(false)
-            rpSlamwarePlatformProtocol_object?.setMapLocalization(false)
-            
-            rpSlamwarePlatformProtocol_object?.setPose(pose)
-            rpSlamwarePlatformProtocol_object?.setMapWith(map, of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap)
-            
-            rpSlamwarePlatformProtocol_object?.setMapUpdate(true)
-            rpSlamwarePlatformProtocol_object?.setMapLocalization(true)
+            do {
+                try ExceptionCatcher.catchException { [weak self] in
+                    self?.rpSlamwarePlatformProtocol_object?.setMapUpdate(false)
+                    self?.rpSlamwarePlatformProtocol_object?.setMapLocalization(false)
+                    
+                    self?.rpSlamwarePlatformProtocol_object?.setMapWith(map, of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap)
+                    self?.rpSlamwarePlatformProtocol_object?.setPose(pose)
+                    
+                    self?.rpSlamwarePlatformProtocol_object?.setMapUpdate(true)
+                    self?.rpSlamwarePlatformProtocol_object?.setMapLocalization(true)
+                }
+            } catch {
+                print("Caught Objective-C exception in setMap: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func recoverLocalization(in area: CGRect? = nil) {
+        do {
+            try ExceptionCatcher.catchException { [weak self] in
+                if let area = area {
+                    let originX = Float(area.origin.x)
+                    let originY = Float(area.origin.y)
+                    let width = Float(area.width)
+                    let height = Float(area.height)
+                    
+                    if let origin = RPPointF(x: originX, andY: originY),
+                       let size = RPSizeF(width: width, andHeight: height) {
+                        let rpArea = RPRectangleF(origin: origin, andSize: size)
+                        self?.rpSlamwarePlatformProtocol_object?.recoverLocalization(rpArea)
+                    }
+                } else {
+                    if let rpKnownRect = self?.rpSlamwarePlatformProtocol_object?.getKnownArea(of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap) {
+                        self?.rpSlamwarePlatformProtocol_object?.recoverLocalization(rpKnownRect)
+                    }
+                }
+            }
+        } catch {
+            print("Caught Objective-C exception in recoverLocalization: \(error.localizedDescription)")
         }
     }
     
     /// RPLaserPoint Array returned
     var laserPoints: [RPLaserPoint]? {
-        let laserScan = rpSlamwarePlatformProtocol_object?.laserScan()
-        return laserScan?.laserPoints
-        //---------
-        //DEBUG PRINT OUT LASER POINT ARRAY
-        //if let laserPoints = laserScan?.laserPoints {
-        //    for laserPoint in laserPoints {
-        //        print("angle = \(laserPoint.angle)\tdistance =\(laserPoint.distance)\tisValid = \(laserPoint.valid)")
-        //    }
-        //}
-        //---------
+        var points: [RPLaserPoint]? = nil
+        do {
+            try ExceptionCatcher.catchException { [weak self] in
+                points = self?.rpSlamwarePlatformProtocol_object?.laserScan().laserPoints
+            }
+        } catch {}
+        return points
     }
     
     func getLaserPoints() throws -> [RPLaserPoint]? {

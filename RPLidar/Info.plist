@@ -27,6 +27,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>bluetooth</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_robctl._udp</string>
