@@ -16,6 +16,7 @@ class RPLidarController: NSObject {
     
     var currentLocation: RPLocation?
     var currentPose: RPPose?
+    var currentLaserScan: RPLaserScan?
     var currentLaserPoints: [RPLaserPoint]?
     var currentMap: RPMap?
     var currentCompositeMap: RPCompositeMap?
@@ -235,16 +236,24 @@ class RPLidarController: NSObject {
     }
     
     func getLaserPoints() throws -> [RPLaserPoint]? {
+        try getLaserScan()?.laserPoints
+    }
+
+    /// Returns the points together with the pose captured for that scan. Using
+    /// this pose avoids rotating/translating fresh hits with a different pose
+    /// fetched in a separate network request.
+    func getLaserScan() throws -> RPLaserScan? {
         do {
             try ExceptionCatcher.catchException {
-                // Simulate an Objective-C exception
-                self.currentLaserPoints = self.rpSlamwarePlatformProtocol_object?.laserScan().laserPoints
+                let scan = self.rpSlamwarePlatformProtocol_object?.laserScan()
+                self.currentLaserScan = scan
+                self.currentLaserPoints = scan?.laserPoints
             }
         } catch {
-            print("Caught Objective-C exception currentLaserPoints: \(error.localizedDescription)")
-            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentLaserPoints"])
+            print("Caught Objective-C exception currentLaserScan: \(error.localizedDescription)")
+            throw NSError(domain: "RPLidar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation failed due to get currentLaserScan"])
         }
-        return currentLaserPoints
+        return currentLaserScan
     }
 }
 

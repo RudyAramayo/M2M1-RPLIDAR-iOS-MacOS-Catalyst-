@@ -23,6 +23,7 @@ class RPLidarViewController: UIViewController {
     private var publisherDeviceID: UUID?
     private var runtimeTimers: [Timer] = []
     private var transportStatusTimer: Timer?
+    private var mapZoomScale: CGFloat = 1
     private let transportStatusLabel = UILabel()
     private let pairButton = UIButton(type: .system)
     private let forgetPairingButton = UIButton(type: .system)
@@ -102,7 +103,20 @@ class RPLidarViewController: UIViewController {
             userInfo: nil,
             repeats: true
         )
-        rpLidarImageView.transform = CGAffineTransformMakeScale(1.0, -1.0)
+        rpLidarImageView.contentMode = .scaleAspectFit
+        rpLidarPolarView.contentMode = .scaleAspectFit
+        applyMapZoom()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        // The image and overlay were authored with different storyboard
+        // frames. Matching their bounds and center makes scaleAspectFit use
+        // the exact same bitmap rectangle in both layers on every device.
+        rpLidarImageView.bounds = rpLidarPolarView.bounds
+        rpLidarImageView.center = rpLidarPolarView.center
+        applyMapZoom()
     }
 
     deinit {
@@ -132,61 +146,84 @@ class RPLidarViewController: UIViewController {
     }
     
     @IBAction func zoomAction(sender: UISlider) {
-        rpLidarPolarView.zoomScale = sender.value
-        rpLidarPolarView.setNeedsDisplay()
+        mapZoomScale = max(0.01, CGFloat(sender.value) / 100)
+        applyMapZoom()
+    }
+
+    private func applyMapZoom() {
+        let transform = CGAffineTransform(scaleX: mapZoomScale, y: mapZoomScale)
+        rpLidarImageView.transform = transform
+        rpLidarPolarView.transform = transform
     }
     
     @objc func lidarPulse() {
-        //DispatchQueue.global(qos: .userInteractive).async {
         queue.async {
             do {
                 var dataString = ""
-                if let location = try self.rpLidar?.getLocation() {
-                    self.currentLocation = location
-                    DispatchQueue.main.async {
-                        self.locationLabel.text = "x: \(location.x)  y: \(location.y)  z: \(location.z)"
-                    }
+                guard let scan = try self.rpLidar?.getLaserScan() else { return }
+
+                let pose: RPPose?
+                if let scanPose = scan.pose {
+                    pose = scanPose
+                } else {
+                    pose = try self.rpLidar?.getPose()
+                }
+                let location: RPLocation?
+                if let pose {
+                    location = pose.location
+                } else {
+                    location = try self.rpLidar?.getLocation()
+                }
+
+                self.currentPose = pose
+                self.currentLocation = location
+
+                if let location {
                     dataString += "\(location.x):\(location.y):\(location.z)\n"
                 } else {
                     dataString += "0:0:0\n"
                 }
-                if let pose = try self.rpLidar?.getPose() {
-                    self.currentPose = pose
-                    DispatchQueue.main.async {
-                        self.rotationLabel.text = "yaw: \(pose.yaw())  pitch: \(pose.pitch())  roll: \(pose.roll())"
-                    }
+                if let pose {
                     dataString += "\(pose.yaw()):\(pose.pitch()):\(pose.roll())\n"
                 } else {
                     dataString += "0:0:0\n"
                 }
-                if let laserPoints = try self.rpLidar?.getLaserPoints() {
-                    self.currentLaserPoints = laserPoints
-                    var filteredLaserPoints: [RPLaserPoint] = []
-                    
-                    for laserPoint in laserPoints {
-                        if laserPoint.valid
-                            //&&
-                            //laserPoint.distance < self.distance_filter &&
-                            //((laserPoint.angle < self.angleFilter  &&
-                            //  laserPoint.angle > -self.angleFilter) || (laserPoint.angle > Float.pi - self.angleFilter  &&
-                            //                                            laserPoint.angle < Float.pi) || (laserPoint.angle < -Float.pi + self.angleFilter  &&
-                            //                                                                             laserPoint.angle > -Float.pi))
-                        {
-                            filteredLaserPoints.append(laserPoint)
-                            dataString += "\(laserPoint.distance):\(laserPoint.angle)\n"
-                        }
-                    }
-                    
-                    self.rpLidarPolarView.laserPoints = filteredLaserPoints
-                    self.rpLidarPolarView.map = self.currentMap
-                    self.rpLidarPolarView.currentLocation = self.currentLocation
-                    
-                    DispatchQueue.main.async {
-                        self.rpLidarPolarView.setNeedsDisplay()
-                    }
-                    
-                    self.publishScan(dataString)
+
+                let laserPoints = scan.laserPoints
+                self.currentLaserPoints = laserPoints
+                var renderedLaserPoints: [RPLidarScanPoint] = []
+                renderedLaserPoints.reserveCapacity(laserPoints.count)
+                for laserPoint in laserPoints where laserPoint.valid {
+                    renderedLaserPoints.append(RPLidarScanPoint(
+                        distance: CGFloat(laserPoint.distance),
+                        angle: CGFloat(laserPoint.angle)
+                    ))
+                    dataString += "\(laserPoint.distance):\(laserPoint.angle)\n"
                 }
+
+                let robotPose = pose.map {
+                    RPLidarPose2D(
+                        location: CGPoint(
+                            x: CGFloat($0.location.x),
+                            y: CGFloat($0.location.y)
+                        ),
+                        yaw: CGFloat($0.yaw())
+                    )
+                }
+
+                DispatchQueue.main.async {
+                    if let location {
+                        self.locationLabel.text = "x: \(location.x)  y: \(location.y)  z: \(location.z)"
+                    }
+                    if let pose {
+                        self.rotationLabel.text = "yaw: \(pose.yaw())  pitch: \(pose.pitch())  roll: \(pose.roll())"
+                    }
+                    self.rpLidarPolarView.laserPoints = renderedLaserPoints
+                    self.rpLidarPolarView.robotPose = robotPose
+                    self.rpLidarPolarView.setNeedsDisplay()
+                }
+
+                self.publishScan(dataString)
             } catch {
                 print("RPLidar error \(error.localizedDescription)")
                 self.reconnect()
@@ -233,41 +270,11 @@ class RPLidarViewController: UIViewController {
                     
                     let dataBytes = data.bytes
                     let image = self.mask(from: dataBytes, dataWidth: width, dataHeight: height)
+                    let mapFrame = self.mapFrame(from: map)
                     DispatchQueue.main.async {
                         self.rpLidarImageView.image = image
-                        //
-                        do {
-                            if let yaw = try self.rpLidar?.getPose()?.yaw(),
-                               let location = try self.rpLidar?.getLocation() {
-                                //                        let polarViewWidth = self.rpLidarPolarView.frame.size.width
-                                //                        let polarViewHeight = self.rpLidarPolarView.frame.size.height
-                                //
-                                //                        let x_min = map.origin.x - map.getArea().size.width / 2
-                                //                        let x_max = map.origin.x + map.getArea().size.width / 2
-                                //                        let y_min = map.origin.y - map.getArea().size.height / 2
-                                //                        let y_max = map.origin.y + map.getArea().size.height / 2
-                                //                        print("x_min \(x_min) x_max \(x_max) y_min \(y_min) y_max \(y_max)")
-                                //
-                                //                        let delta_x = x_max - x_min
-                                //                        let delta_y = y_max - y_min
-                                //                        print("delta_x \(delta_x) delta_y \(delta_y)")
-                                //
-                                //                        let delta_loc_x = location.x - x_min
-                                //                        let delta_loc_y = location.y - y_min
-                                //                        print("delta_loc_x \(delta_loc_x) delta_loc_y \(delta_loc_y)")
-                                //
-                                //                        let rotationTransform = CGAffineTransformMakeRotation(Double(yaw) - .pi / 2)
-                                //                        let translationTransform = CGAffineTransformMakeTranslation(460, -40)
-                                //print("x,y = \(location.x), \(location.y) -- map \(map.dimension.width), \(map.dimension.height) -- \(map.origin.x), \(map.origin.y) -- \(map.resolution.x), \(map.resolution.y) -- \(map.getArea().origin.x), \(map.getArea().origin.y) -- \(map.getArea().size.width), \(map.getArea().size.height)")
-                                //
-                                //                        let transform = CGAffineTransformConcat(rotationTransform, translationTransform)
-                                //                        let scaleTransfor = CGAffineTransformMakeScale(1.0, -1.0)
-                                //                        //self.rpLidarImageView.transform = CGAffineTransformConcat(scaleTransfor, transform)
-                                //                        self.rpLidarPolarView.transform = CGAffineTransformMakeTranslation(460, -40)
-                            }
-                        } catch {
-                            print("error = \(error)")
-                        }
+                        self.rpLidarPolarView.mapFrame = mapFrame
+                        self.rpLidarPolarView.setNeedsDisplay()
                     }
                 }
             } catch {
@@ -561,18 +568,20 @@ class RPLidarViewController: UIViewController {
     }
     
     func mask(from data: [UInt8], dataWidth: Int32, dataHeight: Int32) -> UIImage? {
-        guard data.count >= 8 else {
-            print("data too small")
-            return nil
-        }
-        
         let width  = Int(dataWidth)
         let height = Int(dataHeight)
+        guard let displayBytes = RPLidarMapRaster.displayBytes(
+            from: data,
+            width: width,
+            height: height
+        ) else {
+            print("invalid map data or dimensions")
+            return nil
+        }
         
         let colorSpace = CGColorSpaceCreateDeviceGray()
         
         guard
-            data.count >= width * height,
             let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: colorSpace, bitmapInfo: CGImageAlphaInfo.none.rawValue),
             let buffer = context.data?.bindMemory(to: UInt8.self, capacity: width * height)
         else {
@@ -580,10 +589,27 @@ class RPLidarViewController: UIViewController {
         }
         
         for index in 0 ..< width * height {
-            buffer[index] = data[index]
+            buffer[index] = displayBytes[index]
         }
         
         return context.makeImage().flatMap { UIImage(cgImage: $0) }
+    }
+
+    private func mapFrame(from map: RPMap) -> RPLidarMapFrame? {
+        RPLidarMapFrame(
+            origin: CGPoint(
+                x: CGFloat(map.origin.x),
+                y: CGFloat(map.origin.y)
+            ),
+            pixelDimensions: CGSize(
+                width: CGFloat(map.dimension.width),
+                height: CGFloat(map.dimension.height)
+            ),
+            resolution: CGSize(
+                width: CGFloat(map.resolution.x),
+                height: CGFloat(map.resolution.y)
+            )
+        )
     }
 }
 
