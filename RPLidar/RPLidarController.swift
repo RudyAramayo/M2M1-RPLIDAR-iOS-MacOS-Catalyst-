@@ -70,9 +70,12 @@ class RPLidarController: NSObject {
         } catch {
             print("Using the last cached pose for map reset: \(error.localizedDescription)")
         }
+        // Prefer geometry read from the device immediately before reset. The
+        // cached map can be a previously loaded/saved map with stale bounds.
+        let resetMapTemplate = readCurrentExploreMap(on: platform) ?? currentMap
 
         if let action = relocalizationAction {
-            cancelActionForReset(action, named: "relocalization")
+            cancelActionForMapMutation(action, named: "relocalization")
             relocalizationAction = nil
         }
 
@@ -88,7 +91,7 @@ class RPLidarController: NSObject {
             print("Unable to inspect current action during reset: \(error.localizedDescription)")
         }
         if let deviceAction {
-            cancelActionForReset(deviceAction, named: "current device action")
+            cancelActionForMapMutation(deviceAction, named: "current device action")
         }
 
         do {
@@ -105,7 +108,11 @@ class RPLidarController: NSObject {
             try performSDKOperation(named: "Pause map localization for reset") {
                 platform.setMapLocalization(false)
             }
-            Thread.sleep(forTimeInterval: 0.25)
+            try waitForMapModes(
+                on: platform,
+                mapUpdate: false,
+                mapLocalization: false
+            )
 
             var didClearMap = false
             for retry in 1 ... 3 {
@@ -131,7 +138,8 @@ class RPLidarController: NSObject {
                 do {
                     try replaceExploreMapWithBlankMap(
                         on: platform,
-                        pose: resetPose
+                        pose: resetPose,
+                        template: resetMapTemplate
                     )
                     didClearMap = true
                 } catch {
@@ -159,6 +167,11 @@ class RPLidarController: NSObject {
         try performSDKOperation(named: "Enable map localization") {
             platform.setMapLocalization(true)
         }
+        try waitForMapModes(
+            on: platform,
+            mapUpdate: true,
+            mapLocalization: true
+        )
     }
 
     private func clearMap(on platform: RPSlamwarePlatformProtocol) throws {
@@ -189,7 +202,8 @@ class RPLidarController: NSObject {
     /// result once live map updating resumes.
     private func replaceExploreMapWithBlankMap(
         on platform: RPSlamwarePlatformProtocol,
-        pose: RPPose?
+        pose: RPPose?,
+        template: RPMap?
     ) throws {
         guard let pose else {
             throw RPLidarControllerError.operationFailed(
@@ -203,22 +217,38 @@ class RPLidarController: NSObject {
         }
 
         let defaultResolution: Float = 0.05
-        let savedResolutionX = currentMap?.resolution.x ?? defaultResolution
-        let savedResolutionY = currentMap?.resolution.y ?? defaultResolution
-        let resolutionX = savedResolutionX.isFinite && savedResolutionX > 0
-            ? savedResolutionX
-            : defaultResolution
-        let resolutionY = savedResolutionY.isFinite && savedResolutionY > 0
-            ? savedResolutionY
-            : defaultResolution
-        let width: Int32 = 32
-        let height: Int32 = 32
+        let templateWidth = template?.dimension.width ?? 0
+        let templateHeight = template?.dimension.height ?? 0
+        let templateResolutionX = template?.resolution.x ?? defaultResolution
+        let templateResolutionY = template?.resolution.y ?? defaultResolution
+        let hasValidTemplate = templateWidth > 0
+            && templateHeight > 0
+            && templateResolutionX.isFinite
+            && templateResolutionY.isFinite
+            && templateResolutionX > 0
+            && templateResolutionY > 0
+        let width: Int32 = hasValidTemplate ? templateWidth : 32
+        let height: Int32 = hasValidTemplate ? templateHeight : 32
+        let resolutionX = hasValidTemplate ? templateResolutionX : defaultResolution
+        let resolutionY = hasValidTemplate ? templateResolutionY : defaultResolution
         let worldWidth = Float(width) * resolutionX
         let worldHeight = Float(height) * resolutionY
+        let fallbackOriginX = pose.location.x - worldWidth / 2
+        let fallbackOriginY = pose.location.y - worldHeight / 2
+        let originX = hasValidTemplate
+            ? template?.origin.x ?? fallbackOriginX
+            : fallbackOriginX
+        let originY = hasValidTemplate
+            ? template?.origin.y ?? fallbackOriginY
+            : fallbackOriginY
+        let (pixelCount, pixelCountOverflow) = Int(width).multipliedReportingOverflow(
+            by: Int(height)
+        )
 
-        guard let origin = RPPointF(
-                x: pose.location.x - worldWidth / 2,
-                andY: pose.location.y - worldHeight / 2
+        guard !pixelCountOverflow,
+              let origin = RPPointF(
+                x: originX,
+                andY: originY
               ),
               let dimension = RPSize(width: width, andHeight: height),
               let resolution = RPPointF(x: resolutionX, andY: resolutionY) else {
@@ -234,12 +264,12 @@ class RPLidarController: NSObject {
 
         // Slamware bitmap values are signed bytes biased by +128 for display;
         // raw zero is therefore neutral gray/unknown space.
-        let data = Data(repeating: 0, count: Int(width * height))
+        let data = Data(repeating: 0, count: pixelCount)
         let blankMap = RPMap(
             origin: origin,
             andDimension: dimension,
             andResolution: resolution,
-            andTimestamp: 0,
+            andTimestamp: template?.timestamp ?? 0,
             andData: data
         )
 
@@ -255,7 +285,64 @@ class RPLidarController: NSObject {
         }
     }
 
-    private func cancelActionForReset(_ action: RPMoveActionProtocol, named name: String) {
+    private func readCurrentExploreMap(on platform: RPSlamwarePlatformProtocol) -> RPMap? {
+        var map: RPMap?
+        do {
+            try performSDKOperation(named: "Read map template for reset") {
+                let knownArea = platform.getKnownArea(
+                    of: RPMapTypeBitmap8Bit,
+                    andMapKind: RPMapKindExploreMap
+                )
+                if !knownArea.empty() {
+                    map = platform.getMapWith(
+                        RPMapTypeBitmap8Bit,
+                        inArea: knownArea,
+                        of: RPMapKindExploreMap
+                    )
+                }
+            }
+        } catch {
+            print("Unable to read a map template for reset: \(error.localizedDescription)")
+        }
+        return map
+    }
+
+    private func waitForMapModes(
+        on platform: RPSlamwarePlatformProtocol,
+        mapUpdate expectedMapUpdate: Bool,
+        mapLocalization expectedMapLocalization: Bool,
+        timeout: TimeInterval = 5
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        var actualMapUpdate = !expectedMapUpdate
+        var actualMapLocalization = !expectedMapLocalization
+
+        repeat {
+            try performSDKOperation(named: "Read SLAM mode state") {
+                actualMapUpdate = platform.mapUpdate()
+                actualMapLocalization = platform.mapLocalization()
+            }
+            if actualMapUpdate == expectedMapUpdate,
+               actualMapLocalization == expectedMapLocalization {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.2)
+        } while Date() < deadline
+
+        throw RPLidarControllerError.operationFailed(
+            name: "Wait for SLAM mode transition",
+            underlying: NSError(
+                domain: "RPLidar",
+                code: 6,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Expected mapUpdate=\(expectedMapUpdate), mapLocalization=\(expectedMapLocalization); device remained mapUpdate=\(actualMapUpdate), mapLocalization=\(actualMapLocalization)."
+                ]
+            )
+        )
+    }
+
+    private func cancelActionForMapMutation(_ action: RPMoveActionProtocol, named name: String) {
         var isEmpty = false
         do {
             try performSDKOperation(named: "Inspect \(name)") {
@@ -272,7 +359,7 @@ class RPLidarController: NSObject {
         } catch {
             // The action can finish between inspection and cancellation. A
             // stale-action failure should not prevent the subsequent clear.
-            print("Ignoring \(name) cancellation during reset: \(error.localizedDescription)")
+            print("Ignoring stale \(name) during map mutation: \(error.localizedDescription)")
         }
     }
 
@@ -457,28 +544,54 @@ class RPLidarController: NSObject {
         }
         let recoveryArea = RPRectangleF(origin: areaOrigin, andSize: areaSize)
 
+        if let action = relocalizationAction {
+            cancelActionForMapMutation(action, named: "relocalization")
+            relocalizationAction = nil
+        }
+
+        var deviceAction: RPMoveActionProtocol?
         do {
-            try ExceptionCatcher.catchException {
-                self.relocalizationAction?.cancel()
-                self.relocalizationAction = nil
-                platform.setMapUpdate(false)
-                platform.setMapLocalization(false)
-                platform.setMapWith(
-                    map,
-                    of: RPMapTypeBitmap8Bit,
-                    andMapKind: RPMapKindExploreMap
-                )
-                platform.setPose(pose)
-                platform.setMapLocalization(true)
-                self.relocalizationAction = platform.recoverLocalization(recoveryArea)
+            try performSDKOperation(named: "Read current device action") {
+                deviceAction = platform.currentAction()
             }
         } catch {
-            // Leave update disabled after a failed load so an uncertain pose
-            // cannot modify the map. A reset explicitly restores mapping mode.
-            throw RPLidarControllerError.operationFailed(
-                name: "Load map and relocalize",
-                underlying: error
+            print("Unable to inspect current action before map load: \(error.localizedDescription)")
+        }
+        if let deviceAction {
+            cancelActionForMapMutation(deviceAction, named: "current device action")
+        }
+
+        try performSDKOperation(named: "Pause map update for load") {
+            platform.setMapUpdate(false)
+        }
+        try performSDKOperation(named: "Pause map localization for load") {
+            platform.setMapLocalization(false)
+        }
+        try waitForMapModes(
+            on: platform,
+            mapUpdate: false,
+            mapLocalization: false
+        )
+        try performSDKOperation(named: "Upload saved map") {
+            platform.setMapWith(
+                map,
+                of: RPMapTypeBitmap8Bit,
+                andMapKind: RPMapKindExploreMap
             )
+        }
+        try performSDKOperation(named: "Set saved map pose") {
+            platform.setPose(pose)
+        }
+        try performSDKOperation(named: "Enable localization for loaded map") {
+            platform.setMapLocalization(true)
+        }
+        try waitForMapModes(
+            on: platform,
+            mapUpdate: false,
+            mapLocalization: true
+        )
+        try performSDKOperation(named: "Start relocalization") {
+            self.relocalizationAction = platform.recoverLocalization(recoveryArea)
         }
 
         guard relocalizationAction != nil else {
