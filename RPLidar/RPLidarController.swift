@@ -9,6 +9,29 @@
 import UIKit
 import SlamwareSDK
 
+enum RPLidarRelocalizationState {
+    case idle
+    case waiting(progress: Double)
+    case running(progress: Double)
+    case finished
+    case stopped
+    case failed
+}
+
+enum RPLidarControllerError: LocalizedError {
+    case notConnected
+    case operationFailed(name: String, underlying: Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .notConnected:
+            return "The RPLidar is not connected."
+        case .operationFailed(let name, let underlying):
+            return "\(name) failed: \(underlying.localizedDescription)"
+        }
+    }
+}
+
 class RPLidarController: NSObject {
     var connectionIP: String
     var deviceManager: RPDeviceManager?
@@ -20,6 +43,7 @@ class RPLidarController: NSObject {
     var currentLaserPoints: [RPLaserPoint]?
     var currentMap: RPMap?
     var currentCompositeMap: RPCompositeMap?
+    private var relocalizationAction: RPMoveActionProtocol?
     
     init(ip: String) {
         connectionIP = ip
@@ -29,15 +53,33 @@ class RPLidarController: NSObject {
         rpSlamwarePlatformProtocol_object = deviceManager?.connect(connectionIP, withPort: 1445)
     }
     
-    /// Clears the 8bit map that the lidar generates internalls
-    func clearMap() {
+    /// Clears the current map and returns Slamware to normal mapping mode.
+    /// Mapping/localization are paused while the map is replaced so the SLAM
+    /// engine cannot write into a half-reset map.
+    func resetMap() throws {
+        guard let platform = rpSlamwarePlatformProtocol_object else {
+            throw RPLidarControllerError.notConnected
+        }
+
         do {
-            try ExceptionCatcher.catchException { [weak self] in
-                self?.rpSlamwarePlatformProtocol_object?.clearMap()
+            try ExceptionCatcher.catchException {
+                self.relocalizationAction?.cancel()
+                self.relocalizationAction = nil
+                platform.setMapUpdate(false)
+                platform.setMapLocalization(false)
+                platform.clearMap()
+                platform.setMapLocalization(true)
+                platform.setMapUpdate(true)
             }
         } catch {
-            print("Caught Objective-C exception in clearMap: \(error.localizedDescription)")
+            throw RPLidarControllerError.operationFailed(
+                name: "Reset map",
+                underlying: error
+            )
         }
+
+        currentMap = nil
+        currentCompositeMap = nil
     }
     
     /// Toggles the map update engine to update the map. Use this to switch between maps in conjuction with mapLocalization.
@@ -179,48 +221,109 @@ class RPLidarController: NSObject {
         return currentCompositeMap
     }
     
-    func setMap(_ map: RPMap?, pose: RPPose?) {
-        if let map = map,
-           let pose = pose {
-            do {
-                try ExceptionCatcher.catchException { [weak self] in
-                    self?.rpSlamwarePlatformProtocol_object?.setMapUpdate(false)
-                    self?.rpSlamwarePlatformProtocol_object?.setMapLocalization(false)
-                    
-                    self?.rpSlamwarePlatformProtocol_object?.setMapWith(map, of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap)
-                    self?.rpSlamwarePlatformProtocol_object?.setPose(pose)
-                    
-                    self?.rpSlamwarePlatformProtocol_object?.setMapUpdate(true)
-                    self?.rpSlamwarePlatformProtocol_object?.setMapLocalization(true)
-                }
-            } catch {
-                print("Caught Objective-C exception in setMap: \(error.localizedDescription)")
-            }
+    /// Installs a saved map and seed pose, then starts Slamware's actual
+    /// relocalization action. Map update deliberately remains off: Slamware
+    /// uses that mode for localization against a known map, and it prevents a
+    /// bad provisional pose from corrupting the map while recovery runs.
+    func loadMapAndRecoverLocalization(_ map: RPMap, pose: RPPose) throws {
+        guard let platform = rpSlamwarePlatformProtocol_object else {
+            throw RPLidarControllerError.notConnected
         }
-    }
-    
-    func recoverLocalization(in area: CGRect? = nil) {
+
+        let areaWidth = Float(map.dimension.width) * map.resolution.x
+        let areaHeight = Float(map.dimension.height) * map.resolution.y
+        guard areaWidth.isFinite,
+              areaHeight.isFinite,
+              areaWidth > 0,
+              areaHeight > 0,
+              let areaOrigin = RPPointF(x: map.origin.x, andY: map.origin.y),
+              let areaSize = RPSizeF(
+                width: areaWidth,
+                andHeight: areaHeight
+              ) else {
+            throw RPLidarControllerError.operationFailed(
+                name: "Load map",
+                underlying: NSError(
+                    domain: "RPLidar",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "The saved map area is invalid."]
+                )
+            )
+        }
+        let recoveryArea = RPRectangleF(origin: areaOrigin, andSize: areaSize)
+
         do {
-            try ExceptionCatcher.catchException { [weak self] in
-                if let area = area {
-                    let originX = Float(area.origin.x)
-                    let originY = Float(area.origin.y)
-                    let width = Float(area.width)
-                    let height = Float(area.height)
-                    
-                    if let origin = RPPointF(x: originX, andY: originY),
-                       let size = RPSizeF(width: width, andHeight: height) {
-                        let rpArea = RPRectangleF(origin: origin, andSize: size)
-                        self?.rpSlamwarePlatformProtocol_object?.recoverLocalization(rpArea)
-                    }
-                } else {
-                    if let rpKnownRect = self?.rpSlamwarePlatformProtocol_object?.getKnownArea(of: RPMapTypeBitmap8Bit, andMapKind: RPMapKindExploreMap) {
-                        self?.rpSlamwarePlatformProtocol_object?.recoverLocalization(rpKnownRect)
-                    }
-                }
+            try ExceptionCatcher.catchException {
+                self.relocalizationAction?.cancel()
+                self.relocalizationAction = nil
+                platform.setMapUpdate(false)
+                platform.setMapLocalization(false)
+                platform.setMapWith(
+                    map,
+                    of: RPMapTypeBitmap8Bit,
+                    andMapKind: RPMapKindExploreMap
+                )
+                platform.setPose(pose)
+                platform.setMapLocalization(true)
+                self.relocalizationAction = platform.recoverLocalization(recoveryArea)
             }
         } catch {
-            print("Caught Objective-C exception in recoverLocalization: \(error.localizedDescription)")
+            // Leave update disabled after a failed load so an uncertain pose
+            // cannot modify the map. A reset explicitly restores mapping mode.
+            throw RPLidarControllerError.operationFailed(
+                name: "Load map and relocalize",
+                underlying: error
+            )
+        }
+
+        guard relocalizationAction != nil else {
+            throw RPLidarControllerError.operationFailed(
+                name: "Start relocalization",
+                underlying: NSError(
+                    domain: "RPLidar",
+                    code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Slamware did not create a recovery action."]
+                )
+            )
+        }
+
+        currentMap = map
+        currentPose = pose
+    }
+
+    func relocalizationState() throws -> RPLidarRelocalizationState {
+        guard let action = relocalizationAction else { return .idle }
+
+        var actionStatus = RPActionStatusWaitingForStart
+        var progress = 0.0
+        do {
+            try ExceptionCatcher.catchException {
+                actionStatus = action.status()
+                progress = action.progress()
+            }
+        } catch {
+            throw RPLidarControllerError.operationFailed(
+                name: "Read relocalization status",
+                underlying: error
+            )
+        }
+
+        switch actionStatus {
+        case RPActionStatusWaitingForStart:
+            return .waiting(progress: progress)
+        case RPActionStatusRunning, RPActionStatusPaused:
+            return .running(progress: progress)
+        case RPActionStatusFinished:
+            relocalizationAction = nil
+            return .finished
+        case RPActionStatusStopped:
+            relocalizationAction = nil
+            return .stopped
+        case RPActionStatusError:
+            relocalizationAction = nil
+            return .failed
+        default:
+            return .running(progress: progress)
         }
     }
     

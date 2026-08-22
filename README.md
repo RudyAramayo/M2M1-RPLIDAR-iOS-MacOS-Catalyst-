@@ -32,6 +32,17 @@ code is always authoritative, and either **Replace Pairing…** or **Forget Loca
 Pairing** permanently disables environment bootstrap. An old Xcode
 launch-scheme value therefore cannot restore or overwrite a credential later.
 
+## Map controls
+
+- **Save Map…** captures the current bitmap map and droid pose together and
+  exports a `.robomap` file with the system file picker.
+- **Load Map…** validates a `.robomap`, installs the map and saved pose while
+  mapping/localization are paused, and then runs Slamware relocalization over
+  the saved map. Keep the area clear because the droid may move or rotate.
+- A loaded map stays locked against updates for localization accuracy. Use
+  **Reset Map** to cancel recovery, clear the active map, and resume live
+  mapping. Saved files are not deleted by a reset.
+
 The bundled SlamwareSDK framework contains iPhoneOS armv7/arm64 slices and
 imports UIKit. The project builds for iOS and can run on supported Apple-silicon
 Macs as an iPad/iPhone app, but it is not a native macOS or true Mac Catalyst
