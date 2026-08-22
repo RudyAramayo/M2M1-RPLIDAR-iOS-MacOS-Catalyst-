@@ -54,32 +54,53 @@ class RPLidarController: NSObject {
     }
     
     /// Clears the current map and returns Slamware to normal mapping mode.
-    /// Mapping/localization are paused while the map is replaced so the SLAM
-    /// engine cannot write into a half-reset map.
+    /// Unlike map upload, Slamware documents clearMap as a direct operation;
+    /// disabling mapping/localization first can produce OperationFailException
+    /// on some firmware versions.
     func resetMap() throws {
         guard let platform = rpSlamwarePlatformProtocol_object else {
             throw RPLidarControllerError.notConnected
         }
 
-        do {
-            try ExceptionCatcher.catchException {
-                self.relocalizationAction?.cancel()
-                self.relocalizationAction = nil
-                platform.setMapUpdate(false)
-                platform.setMapLocalization(false)
-                platform.clearMap()
-                platform.setMapLocalization(true)
-                platform.setMapUpdate(true)
+        if let action = relocalizationAction {
+            do {
+                try performSDKOperation(named: "Cancel relocalization") {
+                    action.cancel()
+                }
+                try performSDKOperation(named: "Wait for relocalization cancellation") {
+                    _ = action.waitUntilDone()
+                }
+            } catch {
+                // A recovery action can finish between the status poll and
+                // cancel call. That stale-action failure must not block reset.
+                print("Ignoring relocalization cancellation during reset: \(error.localizedDescription)")
             }
+            relocalizationAction = nil
+        }
+
+        try performSDKOperation(named: "Clear map") {
+            platform.clearMap()
+        }
+        currentMap = nil
+        currentCompositeMap = nil
+
+        try performSDKOperation(named: "Enable map update") {
+            platform.setMapUpdate(true)
+        }
+        try performSDKOperation(named: "Enable map localization") {
+            platform.setMapLocalization(true)
+        }
+    }
+
+    private func performSDKOperation(named name: String, _ operation: @escaping () -> Void) throws {
+        do {
+            try ExceptionCatcher.catchException(operation)
         } catch {
             throw RPLidarControllerError.operationFailed(
-                name: "Reset map",
+                name: name,
                 underlying: error
             )
         }
-
-        currentMap = nil
-        currentCompositeMap = nil
     }
     
     /// Toggles the map update engine to update the map. Use this to switch between maps in conjuction with mapLocalization.
