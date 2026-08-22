@@ -62,25 +62,94 @@ class RPLidarController: NSObject {
             throw RPLidarControllerError.notConnected
         }
 
-        if let action = relocalizationAction {
-            do {
-                try performSDKOperation(named: "Cancel relocalization") {
-                    action.cancel()
-                }
-                try performSDKOperation(named: "Wait for relocalization cancellation") {
-                    _ = action.waitUntilDone()
-                }
-            } catch {
-                // A recovery action can finish between the status poll and
-                // cancel call. That stale-action failure must not block reset.
-                print("Ignoring relocalization cancellation during reset: \(error.localizedDescription)")
+        var resetPose = currentPose
+        do {
+            try performSDKOperation(named: "Read pose for map reset") {
+                resetPose = platform.pose()
             }
+        } catch {
+            print("Using the last cached pose for map reset: \(error.localizedDescription)")
+        }
+
+        if let action = relocalizationAction {
+            cancelActionForReset(action, named: "relocalization")
             relocalizationAction = nil
         }
 
-        try performSDKOperation(named: "Clear map") {
-            platform.clearMap()
+        // The device may have an action created by another client or retained
+        // across this app reconnecting. Firmware rejects clearMap while such
+        // an action is active, so query and cancel it as well.
+        var deviceAction: RPMoveActionProtocol?
+        do {
+            try performSDKOperation(named: "Read current device action") {
+                deviceAction = platform.currentAction()
+            }
+        } catch {
+            print("Unable to inspect current action during reset: \(error.localizedDescription)")
         }
+        if let deviceAction {
+            cancelActionForReset(deviceAction, named: "current device action")
+        }
+
+        do {
+            try clearMap(on: platform)
+        } catch {
+            // Some Slamware firmware only accepts clearMap after the mapping
+            // engines have reached their paused state. The setters return
+            // before that state is observable, so allow it a short settling
+            // interval and retry the transient OperationFail response.
+            print("Direct clearMap failed; retrying with SLAM paused: \(error.localizedDescription)")
+            try performSDKOperation(named: "Pause map update for reset") {
+                platform.setMapUpdate(false)
+            }
+            try performSDKOperation(named: "Pause map localization for reset") {
+                platform.setMapLocalization(false)
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+
+            var didClearMap = false
+            for retry in 1 ... 3 {
+                do {
+                    try clearMap(on: platform)
+                    didClearMap = true
+                    break
+                } catch {
+                    if retry < 3 {
+                        Thread.sleep(forTimeInterval: 0.25 * Double(retry))
+                    }
+                }
+            }
+
+            // Several older firmware builds report OperationFail when the map
+            // is already empty (and occasionally after clearing succeeded).
+            // Confirm the resulting state before presenting that as a failure.
+            if !didClearMap, exploreMapIsEmpty(on: platform) {
+                didClearMap = true
+            }
+
+            if !didClearMap {
+                do {
+                    try replaceExploreMapWithBlankMap(
+                        on: platform,
+                        pose: resetPose
+                    )
+                    didClearMap = true
+                } catch {
+                    // Do not strand the device in a paused state after an error.
+                    try? performSDKOperation(named: "Restore map localization") {
+                        platform.setMapLocalization(true)
+                    }
+                    try? performSDKOperation(named: "Restore map update") {
+                        platform.setMapUpdate(true)
+                    }
+                    throw RPLidarControllerError.operationFailed(
+                        name: "Reset map using clearMap and blank-map replacement",
+                        underlying: error
+                    )
+                }
+            }
+        }
+
         currentMap = nil
         currentCompositeMap = nil
 
@@ -89,6 +158,121 @@ class RPLidarController: NSObject {
         }
         try performSDKOperation(named: "Enable map localization") {
             platform.setMapLocalization(true)
+        }
+    }
+
+    private func clearMap(on platform: RPSlamwarePlatformProtocol) throws {
+        try performSDKOperation(named: "Clear map") {
+            platform.clearMap()
+        }
+    }
+
+    private func exploreMapIsEmpty(on platform: RPSlamwarePlatformProtocol) -> Bool {
+        var knownArea: RPRectangleF?
+        do {
+            try performSDKOperation(named: "Check cleared map") {
+                knownArea = platform.getKnownArea(
+                    of: RPMapTypeBitmap8Bit,
+                    andMapKind: RPMapKindExploreMap
+                )
+            }
+        } catch {
+            print("Unable to verify whether the map is empty: \(error.localizedDescription)")
+            return false
+        }
+        return knownArea?.empty() ?? false
+    }
+
+    /// Firmware on some Mapper units exposes clearMap but always returns
+    /// OperationFail. Replacing the explore layer with an all-unknown bitmap
+    /// uses the SDK's supported map-upload path and has the same observable
+    /// result once live map updating resumes.
+    private func replaceExploreMapWithBlankMap(
+        on platform: RPSlamwarePlatformProtocol,
+        pose: RPPose?
+    ) throws {
+        guard let pose else {
+            throw RPLidarControllerError.operationFailed(
+                name: "Create blank map",
+                underlying: NSError(
+                    domain: "RPLidar",
+                    code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "No current droid pose is available."]
+                )
+            )
+        }
+
+        let defaultResolution: Float = 0.05
+        let savedResolutionX = currentMap?.resolution.x ?? defaultResolution
+        let savedResolutionY = currentMap?.resolution.y ?? defaultResolution
+        let resolutionX = savedResolutionX.isFinite && savedResolutionX > 0
+            ? savedResolutionX
+            : defaultResolution
+        let resolutionY = savedResolutionY.isFinite && savedResolutionY > 0
+            ? savedResolutionY
+            : defaultResolution
+        let width: Int32 = 32
+        let height: Int32 = 32
+        let worldWidth = Float(width) * resolutionX
+        let worldHeight = Float(height) * resolutionY
+
+        guard let origin = RPPointF(
+                x: pose.location.x - worldWidth / 2,
+                andY: pose.location.y - worldHeight / 2
+              ),
+              let dimension = RPSize(width: width, andHeight: height),
+              let resolution = RPPointF(x: resolutionX, andY: resolutionY) else {
+            throw RPLidarControllerError.operationFailed(
+                name: "Create blank map",
+                underlying: NSError(
+                    domain: "RPLidar",
+                    code: 5,
+                    userInfo: [NSLocalizedDescriptionKey: "The blank map geometry is invalid."]
+                )
+            )
+        }
+
+        // Slamware bitmap values are signed bytes biased by +128 for display;
+        // raw zero is therefore neutral gray/unknown space.
+        let data = Data(repeating: 0, count: Int(width * height))
+        let blankMap = RPMap(
+            origin: origin,
+            andDimension: dimension,
+            andResolution: resolution,
+            andTimestamp: 0,
+            andData: data
+        )
+
+        try performSDKOperation(named: "Upload blank map") {
+            platform.setMapWith(
+                blankMap,
+                of: RPMapTypeBitmap8Bit,
+                andMapKind: RPMapKindExploreMap
+            )
+        }
+        try performSDKOperation(named: "Restore pose after blank map upload") {
+            platform.setPose(pose)
+        }
+    }
+
+    private func cancelActionForReset(_ action: RPMoveActionProtocol, named name: String) {
+        var isEmpty = false
+        do {
+            try performSDKOperation(named: "Inspect \(name)") {
+                isEmpty = action.isEmpty()
+            }
+            guard !isEmpty else { return }
+
+            try performSDKOperation(named: "Cancel \(name)") {
+                action.cancel()
+            }
+            try performSDKOperation(named: "Wait for \(name) cancellation") {
+                _ = action.waitUntilDone()
+            }
+        } catch {
+            // The action can finish between inspection and cancellation. A
+            // stale-action failure should not prevent the subsequent clear.
+            print("Ignoring \(name) cancellation during reset: \(error.localizedDescription)")
         }
     }
 
