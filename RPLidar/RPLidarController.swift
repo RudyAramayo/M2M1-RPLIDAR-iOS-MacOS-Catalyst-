@@ -621,55 +621,12 @@ class RPLidarController: NSObject {
         }
         return currentCompositeMap
     }
-    
-    /// Installs a saved map and seed pose, then starts Slamware's actual
-    /// relocalization action. Map update deliberately remains off: Slamware
-    /// uses that mode for localization against a known map, and it prevents a
-    /// bad provisional pose from corrupting the map while recovery runs.
-    func loadMapAndRecoverLocalization(_ map: RPMap, pose: RPPose) throws {
-        guard let platform = rpSlamwarePlatformProtocol_object else {
-            throw RPLidarControllerError.notConnected
-        }
 
-        let areaWidth = Float(map.dimension.width) * map.resolution.x
-        let areaHeight = Float(map.dimension.height) * map.resolution.y
-        guard areaWidth.isFinite,
-              areaHeight.isFinite,
-              areaWidth > 0,
-              areaHeight > 0,
-              let areaOrigin = RPPointF(x: map.origin.x, andY: map.origin.y),
-              let areaSize = RPSizeF(
-                width: areaWidth,
-                andHeight: areaHeight
-              ) else {
-            throw RPLidarControllerError.operationFailed(
-                name: "Load map",
-                underlying: NSError(
-                    domain: "RPLidar",
-                    code: 2,
-                    userInfo: [NSLocalizedDescriptionKey: "The saved map area is invalid."]
-                )
-            )
-        }
-        let recoveryArea = RPRectangleF(origin: areaOrigin, andSize: areaSize)
-
-        if let action = relocalizationAction {
-            cancelActionForMapMutation(action, named: "relocalization")
-            relocalizationAction = nil
-        }
-
-        var deviceAction: RPMoveActionProtocol?
-        do {
-            try performSDKOperation(named: "Read current device action") {
-                deviceAction = platform.currentAction()
-            }
-        } catch {
-            print("Unable to inspect current action before map load: \(error.localizedDescription)")
-        }
-        if let deviceAction {
-            cancelActionForMapMutation(deviceAction, named: "current device action")
-        }
-
+    private func installMapForLocalization(
+        _ map: RPMap,
+        pose: RPPose,
+        on platform: RPSlamwarePlatformProtocol
+    ) throws {
         try performSDKOperation(named: "Pause map update for load") {
             platform.setMapUpdate(false)
         }
@@ -699,8 +656,138 @@ class RPLidarController: NSObject {
             mapUpdate: false,
             mapLocalization: true
         )
-        try performSDKOperation(named: "Start relocalization") {
-            self.relocalizationAction = platform.recoverLocalization(recoveryArea)
+    }
+
+    private func startRelocalization(
+        on platform: RPSlamwarePlatformProtocol,
+        in recoveryArea: RPRectangleF
+    ) throws {
+        var lastError: Error?
+
+        // Mapper-only installations often cannot perform the SDK's default
+        // base movement. Ask Slamware to match the current scan without
+        // commanding the chassis first.
+        do {
+            let options = RPRecoverLocalizationOptions(
+                maxReocverTime: NSNumber(value: 60_000),
+                andRecoverLocalizationMovement: RPRecoverLocalizationMovementNoMove
+            )
+            try performSDKOperation(named: "Start stationary relocalization") {
+                self.relocalizationAction = platform.recoverLocalization(
+                    withCurrentArea: recoveryArea,
+                    andRecoverLocalizationOptions: options
+                )
+            }
+            if relocalizationAction != nil {
+                return
+            }
+        } catch {
+            lastError = error
+            print("Stationary relocalization was rejected; trying the legacy action: \(error.localizedDescription)")
+        }
+
+        // The no-options overload is supported by older Slamware firmware and
+        // is the form used in Slamtec's reference relocalization sample.
+        do {
+            try performSDKOperation(named: "Start legacy relocalization") {
+                self.relocalizationAction = platform.recoverLocalization(recoveryArea)
+            }
+            if relocalizationAction != nil {
+                return
+            }
+        } catch {
+            lastError = error
+        }
+
+        // A restart or network transition can lose the response even though
+        // the action was created. Adopt the device's action instead of issuing
+        // a duplicate recovery request.
+        do {
+            var deviceAction: RPMoveActionProtocol?
+            var deviceActionIsEmpty = true
+            try performSDKOperation(named: "Check relocalization action") {
+                deviceAction = platform.currentAction()
+                deviceActionIsEmpty = deviceAction?.isEmpty() ?? true
+            }
+            if let deviceAction, !deviceActionIsEmpty {
+                relocalizationAction = deviceAction
+                return
+            }
+        } catch {
+            lastError = error
+        }
+
+        throw RPLidarControllerError.operationFailed(
+            name: "Start relocalization",
+            underlying: lastError ?? NSError(
+                domain: "RPLidar",
+                code: 13,
+                userInfo: [NSLocalizedDescriptionKey: "Slamware did not create a recovery action."]
+            )
+        )
+    }
+    
+    /// Installs a saved map and seed pose, then starts Slamware's actual
+    /// relocalization action. Map update deliberately remains off: Slamware
+    /// uses that mode for localization against a known map, and it prevents a
+    /// bad provisional pose from corrupting the map while recovery runs.
+    func loadMapAndRecoverLocalization(_ map: RPMap, pose: RPPose) throws {
+        guard let platform = rpSlamwarePlatformProtocol_object else {
+            throw RPLidarControllerError.notConnected
+        }
+
+        let areaWidth = Float(map.dimension.width) * map.resolution.x
+        let areaHeight = Float(map.dimension.height) * map.resolution.y
+        guard areaWidth.isFinite,
+              areaHeight.isFinite,
+              areaWidth > 0,
+              areaHeight > 0,
+              map.origin.x.isFinite,
+              map.origin.y.isFinite else {
+            throw RPLidarControllerError.operationFailed(
+                name: "Load map",
+                underlying: NSError(
+                    domain: "RPLidar",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "The saved map area is invalid."]
+                )
+            )
+        }
+        // In this generation of the Slamware SDK an empty rectangle means the
+        // whole map. Passing the bitmap's exact bounds is rejected by some
+        // Mapper firmware even though the map itself uploads successfully.
+        let recoveryArea = RPRectangleF()
+
+        if let action = relocalizationAction {
+            cancelActionForMapMutation(action, named: "relocalization")
+            relocalizationAction = nil
+        }
+
+        var deviceAction: RPMoveActionProtocol?
+        do {
+            try performSDKOperation(named: "Read current device action") {
+                deviceAction = platform.currentAction()
+            }
+        } catch {
+            print("Unable to inspect current action before map load: \(error.localizedDescription)")
+        }
+        if let deviceAction {
+            cancelActionForMapMutation(deviceAction, named: "current device action")
+        }
+
+        try installMapForLocalization(map, pose: pose, on: platform)
+
+        do {
+            try startRelocalization(on: platform, in: recoveryArea)
+        } catch {
+            // Use the reset-map lesson as a last resort: a soft service restart
+            // clears a wedged action state. The restart also clears the map, so
+            // reconnect first and then install the saved map again before
+            // retrying relocalization.
+            print("Relocalization action failed; restarting SLAM services and retrying: \(error.localizedDescription)")
+            let restartedPlatform = try restartSlamwareForMapReset(on: platform)
+            try installMapForLocalization(map, pose: pose, on: restartedPlatform)
+            try startRelocalization(on: restartedPlatform, in: recoveryArea)
         }
 
         guard relocalizationAction != nil else {
