@@ -478,6 +478,7 @@ class RPLidarViewController: UIViewController {
     private func resetCurrentMap() {
         relocalizationMonitorGeneration += 1
         setMapControlsBusy(true, status: "Resetting map…")
+        let resetStartedAt = Date()
 
         queue.async { [weak self] in
             guard let self else { return }
@@ -492,6 +493,7 @@ class RPLidarViewController: UIViewController {
                 self.currentPose = nil
                 self.currentLocation = nil
                 self.currentLaserPoints = nil
+                let elapsed = Date().timeIntervalSince(resetStartedAt)
 
                 DispatchQueue.main.async {
                     self.rpLidarImageView.image = nil
@@ -501,7 +503,10 @@ class RPLidarViewController: UIViewController {
                     self.rpLidarPolarView.setNeedsDisplay()
                     self.locationLabel.text = "X: 0.0   Y: 0.0   Z: 0.0"
                     self.rotationLabel.text = "Yaw: 0.0   Pitch: 0.0   Roll: 0.0"
-                    self.setMapControlsBusy(false, status: "Map reset — live mapping")
+                    self.setMapControlsBusy(
+                        false,
+                        status: String(format: "Map reset in %.1fs — live mapping", elapsed)
+                    )
                 }
             } catch {
                 DispatchQueue.main.async {

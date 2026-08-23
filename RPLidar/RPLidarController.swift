@@ -54,107 +54,36 @@ class RPLidarController: NSObject {
     }
     
     /// Clears the current map and returns Slamware to normal mapping mode.
-    /// Unlike map upload, Slamware documents clearMap as a direct operation;
-    /// disabling mapping/localization first can produce OperationFailException
-    /// on some firmware versions.
+    /// A direct clear is fastest on firmware that supports it. This Mapper's
+    /// firmware rejects map mutations, so one failure goes immediately to the
+    /// proven soft-service-restart path instead of spending time retrying the
+    /// other map APIs.
     func resetMap() throws {
         guard let platform = rpSlamwarePlatformProtocol_object else {
             throw RPLidarControllerError.notConnected
         }
-
-        var resetPose = currentPose
-        do {
-            try performSDKOperation(named: "Read pose for map reset") {
-                resetPose = platform.pose()
-            }
-        } catch {
-            print("Using the last cached pose for map reset: \(error.localizedDescription)")
-        }
-        // Prefer geometry read from the device immediately before reset. The
-        // cached map can be a previously loaded/saved map with stale bounds.
-        let resetMapTemplate = readCurrentExploreMap(on: platform) ?? currentMap
-
-        if let action = relocalizationAction {
-            cancelActionForMapMutation(action, named: "relocalization")
-            relocalizationAction = nil
-        }
-
-        // The device may have an action created by another client or retained
-        // across this app reconnecting. Firmware rejects clearMap while such
-        // an action is active, so query and cancel it as well.
-        var deviceAction: RPMoveActionProtocol?
-        do {
-            try performSDKOperation(named: "Read current device action") {
-                deviceAction = platform.currentAction()
-            }
-        } catch {
-            print("Unable to inspect current action during reset: \(error.localizedDescription)")
-        }
-        if let deviceAction {
-            cancelActionForMapMutation(deviceAction, named: "current device action")
-        }
+        let startedAt = Date()
+        var finalPlatform = platform
 
         do {
             try clearMap(on: platform)
         } catch {
-            // Some Slamware firmware only accepts clearMap after the mapping
-            // engines have reached their paused state. The setters return
-            // before that state is observable, so allow it a short settling
-            // interval and retry the transient OperationFail response.
-            print("Direct clearMap failed; retrying with SLAM paused: \(error.localizedDescription)")
-            try performSDKOperation(named: "Pause map update for reset") {
-                platform.setMapUpdate(false)
-            }
-            try performSDKOperation(named: "Pause map localization for reset") {
-                platform.setMapLocalization(false)
-            }
-            try waitForMapModes(
-                on: platform,
-                mapUpdate: false,
-                mapLocalization: false
-            )
-
-            var didClearMap = false
-            for retry in 1 ... 3 {
-                do {
-                    try clearMap(on: platform)
-                    didClearMap = true
-                    break
-                } catch {
-                    if retry < 3 {
-                        Thread.sleep(forTimeInterval: 0.25 * Double(retry))
-                    }
+            print("Direct clearMap failed; using fast SLAM service restart: \(error.localizedDescription)")
+            relocalizationAction = nil
+            do {
+                finalPlatform = try restartSlamwareForMapReset(on: platform)
+            } catch {
+                let recoveryPlatform = rpSlamwarePlatformProtocol_object ?? platform
+                try? performSDKOperation(named: "Restore map localization") {
+                    recoveryPlatform.setMapLocalization(true)
                 }
-            }
-
-            // Several older firmware builds report OperationFail when the map
-            // is already empty (and occasionally after clearing succeeded).
-            // Confirm the resulting state before presenting that as a failure.
-            if !didClearMap, exploreMapIsEmpty(on: platform) {
-                didClearMap = true
-            }
-
-            if !didClearMap {
-                do {
-                    try replaceExploreMapWithBlankMap(
-                        on: platform,
-                        pose: resetPose,
-                        template: resetMapTemplate
-                    )
-                    didClearMap = true
-                } catch {
-                    // Do not strand the device in a paused state after an error.
-                    try? performSDKOperation(named: "Restore map localization") {
-                        platform.setMapLocalization(true)
-                    }
-                    try? performSDKOperation(named: "Restore map update") {
-                        platform.setMapUpdate(true)
-                    }
-                    throw RPLidarControllerError.operationFailed(
-                        name: "Reset map using clearMap and blank-map replacement",
-                        underlying: error
-                    )
+                try? performSDKOperation(named: "Restore map update") {
+                    recoveryPlatform.setMapUpdate(true)
                 }
+                throw RPLidarControllerError.operationFailed(
+                    name: "Fast map reset using SLAM service restart",
+                    underlying: error
+                )
             }
         }
 
@@ -162,16 +91,17 @@ class RPLidarController: NSObject {
         currentCompositeMap = nil
 
         try performSDKOperation(named: "Enable map update") {
-            platform.setMapUpdate(true)
+            finalPlatform.setMapUpdate(true)
         }
         try performSDKOperation(named: "Enable map localization") {
-            platform.setMapLocalization(true)
+            finalPlatform.setMapLocalization(true)
         }
         try waitForMapModes(
-            on: platform,
+            on: finalPlatform,
             mapUpdate: true,
             mapLocalization: true
         )
+        print(String(format: "Map reset completed in %.2f seconds", Date().timeIntervalSince(startedAt)))
     }
 
     private func clearMap(on platform: RPSlamwarePlatformProtocol) throws {
@@ -305,6 +235,185 @@ class RPLidarController: NSObject {
             print("Unable to read a map template for reset: \(error.localizedDescription)")
         }
         return map
+    }
+
+    private func readCurrentCompositeMap(
+        on platform: RPSlamwarePlatformProtocol
+    ) -> RPCompositeMap? {
+        var map: RPCompositeMap?
+        do {
+            try performSDKOperation(named: "Read composite map template for reset") {
+                map = platform.compositeMap()
+            }
+        } catch {
+            print("Unable to read a composite map template for reset: \(error.localizedDescription)")
+        }
+        return map
+    }
+
+    private func replaceExploreMapWithBlankCompositeMap(
+        on platform: RPSlamwarePlatformProtocol,
+        pose: RPPose?,
+        template: RPCompositeMap?
+    ) throws {
+        guard let pose else {
+            throw RPLidarControllerError.operationFailed(
+                name: "Create blank composite map",
+                underlying: NSError(
+                    domain: "RPLidar",
+                    code: 8,
+                    userInfo: [NSLocalizedDescriptionKey: "No current droid pose is available."]
+                )
+            )
+        }
+        guard let template, let layers = template.maps else {
+            throw RPLidarControllerError.operationFailed(
+                name: "Create blank composite map",
+                underlying: NSError(
+                    domain: "RPLidar",
+                    code: 9,
+                    userInfo: [NSLocalizedDescriptionKey: "Slamware did not provide a composite map template."]
+                )
+            )
+        }
+
+        var replacedExploreLayer = false
+        for layer in layers {
+            guard layer.usage.caseInsensitiveCompare("explore") == .orderedSame,
+                  let gridLayer = layer as? RPGridMapLayer else {
+                continue
+            }
+
+            let width = Int(gridLayer.dimension.width)
+            let height = Int(gridLayer.dimension.height)
+            let (pixelCount, overflow) = width.multipliedReportingOverflow(by: height)
+            guard width > 0, height > 0, !overflow else {
+                throw RPLidarControllerError.operationFailed(
+                    name: "Create blank composite map",
+                    underlying: NSError(
+                        domain: "RPLidar",
+                        code: 10,
+                        userInfo: [NSLocalizedDescriptionKey: "The explore layer geometry is invalid."]
+                    )
+                )
+            }
+
+            gridLayer.mapData = Data(repeating: 0, count: pixelCount)
+            replacedExploreLayer = true
+        }
+
+        guard replacedExploreLayer else {
+            throw RPLidarControllerError.operationFailed(
+                name: "Create blank composite map",
+                underlying: NSError(
+                    domain: "RPLidar",
+                    code: 11,
+                    userInfo: [NSLocalizedDescriptionKey: "The composite map has no explore grid layer."]
+                )
+            )
+        }
+
+        try performSDKOperation(named: "Upload blank composite map") {
+            platform.setCompositeMapWithMapData(template, andPose: pose)
+        }
+    }
+
+    /// Restarts only Slamware's services, reconnects to port 1445, and leaves
+    /// the returned platform paused with an empty explore map. This is the
+    /// final compatibility path for firmware that rejects all map mutations
+    /// while its localization service is stuck in an invalid state.
+    private func restartSlamwareForMapReset(
+        on platform: RPSlamwarePlatformProtocol,
+        timeout: TimeInterval = 30
+    ) throws -> RPSlamwarePlatformProtocol {
+        var restartRequestError: Error?
+        do {
+            try performSDKOperation(named: "Request soft SLAM service restart") {
+                platform.restartModule(with: RPRestartModeSoft)
+            }
+        } catch {
+            // A successful restart can close the command connection before
+            // the SDK receives its reply. Reconnection and a live map query
+            // below are authoritative, so retain this only for diagnostics.
+            restartRequestError = error
+            print("The restart request connection closed: \(error.localizedDescription)")
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastConnectionError = restartRequestError
+        var lastResponsiveCandidate: RPSlamwarePlatformProtocol?
+        var attempt = 0
+        Thread.sleep(forTimeInterval: 0.2)
+
+        while Date() < deadline {
+            attempt += 1
+            var candidate: RPSlamwarePlatformProtocol?
+
+            if attempt == 1 {
+                // Some SDK/device combinations transparently reconnect the
+                // existing platform object after a soft service restart.
+                candidate = platform
+            } else {
+                do {
+                    try ExceptionCatcher.catchException {
+                        candidate = self.deviceManager?.connect(
+                            self.connectionIP,
+                            withPort: 1445
+                        )
+                    }
+                } catch {
+                    lastConnectionError = error
+                }
+            }
+
+            if let candidate {
+                do {
+                    try performSDKOperation(named: "Pause map update after restart") {
+                        candidate.setMapUpdate(false)
+                    }
+                    try performSDKOperation(named: "Pause map localization after restart") {
+                        candidate.setMapLocalization(false)
+                    }
+                    try waitForMapModes(
+                        on: candidate,
+                        mapUpdate: false,
+                        mapLocalization: false,
+                        timeout: 2
+                    )
+                    lastResponsiveCandidate = candidate
+
+                    // A service restart normally starts with no map. If this
+                    // firmware retained one, the restarted localization state
+                    // should now allow the real clearMap command to succeed.
+                    if !exploreMapIsEmpty(on: candidate) {
+                        try clearMap(on: candidate)
+                    }
+
+                    rpSlamwarePlatformProtocol_object = candidate
+                    return candidate
+                } catch {
+                    lastConnectionError = error
+                }
+            }
+
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+
+        if let lastResponsiveCandidate {
+            // Keep the controller attached to the recovered service even when
+            // its firmware still refuses the final clear, so normal polling
+            // and the error-recovery mode restoration use a live connection.
+            rpSlamwarePlatformProtocol_object = lastResponsiveCandidate
+        }
+
+        throw RPLidarControllerError.operationFailed(
+            name: "Reconnect after soft SLAM service restart",
+            underlying: lastConnectionError ?? NSError(
+                domain: "RPLidar",
+                code: 12,
+                userInfo: [NSLocalizedDescriptionKey: "Slamware did not become ready within \(Int(timeout)) seconds."]
+            )
+        )
     }
 
     private func waitForMapModes(
