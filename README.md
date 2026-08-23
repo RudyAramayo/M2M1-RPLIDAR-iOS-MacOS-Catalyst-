@@ -5,10 +5,11 @@ https://www.slamtec.com/en/Support#rplidar-mapper
 
 ## Secure Cerebro publishing
 
-RPLidar now discovers only `_robctl._udp` and publishes typed frame-7 telemetry
+RPLidar now discovers only `_robctl._udp` and publishes compact binary frame-7 scans
 over the same TLS 1.3 QUIC transport used by Cerebro. The Cerebro certificate is
-pinned and a reciprocal HMAC pairing proof completes before any scan or map is
-sent. There is no automatic plaintext or `_roboNet._tcp` fallback.
+pinned and a reciprocal HMAC pairing proof completes before any scan is sent.
+Full occupancy/composite maps stay local and are never sent over ROBControl.
+There is no automatic plaintext or `_roboNet._tcp` fallback.
 
 1. In Cerebro, issue a new per-device credential with role
    `lidarPublisher`. Do not reuse the ROBController/operator credential.
@@ -48,6 +49,12 @@ launch-scheme value therefore cannot restore or overwrite a credential later.
 The lidar connection, polling, authenticated frame-7 publishing, reconnects,
 and periodic map storage are owned by a UI-independent passthrough service.
 Opening or dismissing the GUI therefore does not start or stop the lidar feed.
+
+Wire scans use the fixed-layout `RLS1` format: a 68-byte pose/identity header
+plus four bytes per valid return (millimeters and angle). A 720-point scan is
+2,948 bytes and roughly 14.7 KB/s at 5 Hz before QUIC overhead. The transport
+allows one send in flight and retains only the newest pending scan, preventing
+slow Wi-Fi from creating a stale ordered-stream backlog.
 
 - Debug builds register `ROBDevelopmentMode` as enabled and open the map GUI,
   matching Cerebro's development-mode behavior.

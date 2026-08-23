@@ -1014,10 +1014,14 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
 
     func openStreetMapViewDidRequestOverlayCalibration(_ mapView: ROBOpenStreetMapView) {
         let editor = RPLidarOverlayCalibrationViewController(
-            calibration: mapView.overlayCalibration
+            calibration: mapView.overlayCalibration,
+            baseMapStyle: mapView.baseMapStyle
         )
         editor.onCalibrationChanged = { [weak self] calibration in
             self?.openStreetMapView.setOverlayCalibration(calibration)
+        }
+        editor.onBaseMapStyleChanged = { [weak self] style in
+            self?.openStreetMapView.setBaseMapStyle(style)
         }
         let navigationController = UINavigationController(rootViewController: editor)
         navigationController.modalPresentationStyle = .pageSheet
@@ -1044,15 +1048,24 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
 
 private final class RPLidarOverlayCalibrationViewController: UIViewController {
     var onCalibrationChanged: ((ROBLidarOverlayCalibration) -> Void)?
+    var onBaseMapStyleChanged: ((ROBLidarBaseMapStyle) -> Void)?
 
+    private let mapStyleControl = UISegmentedControl(
+        items: ROBLidarBaseMapStyle.allCases.map(\.title)
+    )
     private let scaleSlider = UISlider(frame: .zero)
     private let rotationSlider = UISlider(frame: .zero)
     private let scaleValueLabel = UILabel(frame: .zero)
     private let rotationValueLabel = UILabel(frame: .zero)
     private var calibration: ROBLidarOverlayCalibration
+    private var baseMapStyle: ROBLidarBaseMapStyle
 
-    init(calibration: ROBLidarOverlayCalibration) {
+    init(
+        calibration: ROBLidarOverlayCalibration,
+        baseMapStyle: ROBLidarBaseMapStyle
+    ) {
         self.calibration = calibration
+        self.baseMapStyle = baseMapStyle
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -1088,6 +1101,11 @@ private final class RPLidarOverlayCalibrationViewController: UIViewController {
         rotationSlider.isContinuous = true
         rotationSlider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
 
+        mapStyleControl.selectedSegmentIndex = ROBLidarBaseMapStyle.allCases.firstIndex(
+            of: baseMapStyle
+        ) ?? 0
+        mapStyleControl.addTarget(self, action: #selector(mapStyleChanged), for: .valueChanged)
+
         [scaleValueLabel, rotationValueLabel].forEach {
             $0.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
             $0.textAlignment = .right
@@ -1100,6 +1118,13 @@ private final class RPLidarOverlayCalibrationViewController: UIViewController {
         explanation.textColor = .secondaryLabel
         explanation.numberOfLines = 0
 
+        let mapStyleLabel = UILabel(frame: .zero)
+        mapStyleLabel.text = "Base map"
+        mapStyleLabel.font = .preferredFont(forTextStyle: .headline)
+        let mapStyleRow = UIStackView(arrangedSubviews: [mapStyleLabel, mapStyleControl])
+        mapStyleRow.axis = .vertical
+        mapStyleRow.spacing = 8
+
         let scaleRow = calibrationRow(
             title: "Overlay scale",
             slider: scaleSlider,
@@ -1110,7 +1135,7 @@ private final class RPLidarOverlayCalibrationViewController: UIViewController {
             slider: rotationSlider,
             valueLabel: rotationValueLabel
         )
-        let stack = UIStackView(arrangedSubviews: [explanation, scaleRow, rotationRow])
+        let stack = UIStackView(arrangedSubviews: [mapStyleRow, explanation, scaleRow, rotationRow])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 24
@@ -1148,6 +1173,13 @@ private final class RPLidarOverlayCalibrationViewController: UIViewController {
         )
         refreshValueLabels()
         onCalibrationChanged?(calibration)
+    }
+
+    @objc private func mapStyleChanged() {
+        let styles = ROBLidarBaseMapStyle.allCases
+        guard styles.indices.contains(mapStyleControl.selectedSegmentIndex) else { return }
+        baseMapStyle = styles[mapStyleControl.selectedSegmentIndex]
+        onBaseMapStyleChanged?(baseMapStyle)
     }
 
     private func refreshValueLabels() {

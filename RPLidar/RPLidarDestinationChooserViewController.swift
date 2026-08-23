@@ -103,6 +103,7 @@ final class RPLidarDestinationChooserViewController: UIViewController {
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let statusLabel = UILabel(frame: .zero)
     private let destinationAnnotation = MKPointAnnotation()
+    private let baseMapStyle = ROBLidarBaseMapStyleStore.load()
     private var searchButton: UIBarButtonItem?
     private var locationButton: UIBarButtonItem?
     private var latestDeviceLocation: CLLocation?
@@ -203,14 +204,7 @@ final class RPLidarDestinationChooserViewController: UIViewController {
         mapView.pointOfInterestFilter = .excludingAll
         mapView.accessibilityLabel = "OpenStreetMap destination map"
 
-        let openStreetMap = MKTileOverlay(
-            urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-        )
-        openStreetMap.tileSize = CGSize(width: 256, height: 256)
-        openStreetMap.minimumZ = 1
-        openStreetMap.maximumZ = 19
-        openStreetMap.canReplaceMapContent = true
-        mapView.addOverlay(openStreetMap, level: .aboveLabels)
+        _ = ROBLidarBaseMapLayer.install(baseMapStyle, on: mapView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(mapTapped(_:)))
         tap.delegate = self
@@ -300,7 +294,8 @@ final class RPLidarDestinationChooserViewController: UIViewController {
     private func configureLayout() {
         let attribution = UILabel(frame: .zero)
         attribution.translatesAutoresizingMaskIntoConstraints = false
-        attribution.text = "© OpenStreetMap contributors"
+        attribution.text = baseMapStyle.attribution
+        attribution.isHidden = baseMapStyle.attribution == nil
         attribution.font = .preferredFont(forTextStyle: .caption2)
         attribution.textColor = .secondaryLabel
         attribution.textAlignment = .right

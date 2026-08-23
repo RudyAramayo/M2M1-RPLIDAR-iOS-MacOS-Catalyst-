@@ -23,6 +23,7 @@ final class AutoNetClientConnection {
     }
 
     private static let authenticationTimeout: TimeInterval = 5
+    private static let networkProbeCapability = Data("ROBNET-PROBE-CAP-V1".utf8)
     private static let networkProbePrefix = Data("ROBNET-PROBE-V1:".utf8)
 
     let nwConnection: NWConnection
@@ -209,6 +210,7 @@ final class AutoNetClientConnection {
             authenticationTimeoutWorkItem = nil
             authenticationState = .authenticated
             setReady(true)
+            announceNetworkProbeCapability()
             print("client: Cerebro certificate pin and pairing proof accepted")
             receiveNextMessage()
 
@@ -223,6 +225,16 @@ final class AutoNetClientConnection {
               let nonceText = String(data: nonceBytes, encoding: .utf8),
               UUID(uuidString: nonceText) != nil else { return false }
         return true
+    }
+
+    private func announceNetworkProbeCapability() {
+        sendFrame(
+            type: .sendData,
+            data: Self.networkProbeCapability,
+            identifier: "NetworkProbeCapability"
+        ) { [weak self] error in
+            if let error { self?.stopLocked(error: error) }
+        }
     }
 
     private func echoNetworkProbe(_ data: Data) {

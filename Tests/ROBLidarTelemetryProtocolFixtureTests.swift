@@ -136,11 +136,23 @@ struct ROBLidarTelemetryProtocolFixtureTests {
     private static func telemetryFixtures() throws {
         let deviceID = UUID()
         let now: UInt64 = 2_000_000
-        let scan = ROBLidarTelemetryMessage.scan(
+        let points = (0..<8).map {
+            ROBLidarWirePoint(
+                distanceMeters: 0.4 + Float($0) * 0.01,
+                angleRadians: -0.4 + Float($0) * 0.1
+            )
+        }
+        let scan = ROBLidarScanFrame(
             deviceID: deviceID,
             sequence: 41,
             sentAtMilliseconds: now,
-            payload: "0:0:0\n0:0:0\n0.25:0.1\n"
+            x: 1.25,
+            y: -0.75,
+            z: 0.1,
+            yaw: 0.2,
+            pitch: -0.1,
+            roll: 0.05,
+            points: points
         )
         guard scan.validationError(
             authenticatedDeviceID: deviceID,
@@ -149,43 +161,21 @@ struct ROBLidarTelemetryProtocolFixtureTests {
         ) == nil else {
             throw FixtureFailure.failed("Valid scan failed validation")
         }
-        let decodedScan = try ROBLidarTelemetryMessage.decode(scan.encoded())
-        guard decodedScan.schemaVersion == 1,
-              decodedScan.networkProbeVersion == 1,
-              decodedScan.kind == .scan,
+        let encodedScan = try scan.encoded()
+        let decodedScan = try ROBLidarScanFrame.decode(encodedScan)
+        guard encodedScan.count == ROBLidarScanFrame.headerLength
+                + points.count * ROBLidarScanFrame.pointStride,
+              Data(encodedScan.prefix(4)) == Data([0x52, 0x4C, 0x53, 0x31]),
               decodedScan.deviceID == deviceID,
               decodedScan.sequence == 41,
-              decodedScan.scanPayload == scan.scanPayload,
-              decodedScan.mapData == nil else {
+              decodedScan.x == scan.x,
+              decodedScan.y == scan.y,
+              decodedScan.points.count == points.count,
+              zip(decodedScan.points, points).allSatisfy({ decoded, original in
+                  abs(decoded.distanceMeters - original.distanceMeters) <= 0.0006
+                      && abs(decoded.angleRadians - original.angleRadians) <= 0.0001
+              }) else {
             throw FixtureFailure.failed("Scan telemetry did not round-trip")
-        }
-        var legacyObject = try JSONSerialization.jsonObject(with: scan.encoded()) as! [String: Any]
-        legacyObject.removeValue(forKey: "networkProbeVersion")
-        let legacyScan = try ROBLidarTelemetryMessage.decode(
-            JSONSerialization.data(withJSONObject: legacyObject)
-        )
-        guard legacyScan.networkProbeVersion == nil,
-              legacyScan.validationError(
-                authenticatedDeviceID: deviceID,
-                lastAcceptedSequence: 40,
-                nowMilliseconds: now
-              ) == nil else {
-            throw FixtureFailure.failed("Pre-probe telemetry lost backward compatibility")
-        }
-        let unsupportedProbe = ROBLidarTelemetryMessage(
-            kind: .scan,
-            deviceID: deviceID,
-            sequence: 42,
-            sentAtMilliseconds: now,
-            scanPayload: "0:0:0\n0:0:0\n0.25:0.1\n",
-            networkProbeVersion: 2
-        )
-        guard unsupportedProbe.validationError(
-            authenticatedDeviceID: deviceID,
-            lastAcceptedSequence: 41,
-            nowMilliseconds: now
-        ) == "unsupported network probe version" else {
-            throw FixtureFailure.failed("Unsupported network probe capability was accepted")
         }
         guard scan.validationError(
                 authenticatedDeviceID: UUID(),
@@ -210,28 +200,45 @@ struct ROBLidarTelemetryProtocolFixtureTests {
             throw FixtureFailure.failed("Scan identity, sequence, or freshness checks failed")
         }
 
-        let map = ROBLidarTelemetryMessage.map(
+        let tooFewPoints = ROBLidarScanFrame(
             deviceID: deviceID,
             sequence: 42,
             sentAtMilliseconds: now,
-            data: Data([0, 1, 2, 3]),
-            width: 2,
-            height: 2
+            x: 0,
+            y: 0,
+            z: 0,
+            yaw: 0,
+            pitch: 0,
+            roll: 0,
+            points: Array(points.prefix(7))
         )
-        guard map.validationError(
+        guard tooFewPoints.validationError(
             authenticatedDeviceID: deviceID,
             lastAcceptedSequence: 41,
             nowMilliseconds: now
-        ) == nil else {
-            throw FixtureFailure.failed("Valid map failed validation")
+        ) == "point count is outside the supported range" else {
+            throw FixtureFailure.failed("Undersized scan was accepted")
         }
-        let decodedMap = try ROBLidarTelemetryMessage.decode(map.encoded())
-        guard decodedMap.kind == .map,
-              decodedMap.mapData == Data([0, 1, 2, 3]),
-              decodedMap.mapWidth == 2,
-              decodedMap.mapHeight == 2,
-              decodedMap.scanPayload == nil else {
-            throw FixtureFailure.failed("Map telemetry did not round-trip")
+
+        var unsupportedHeader = encodedScan
+        unsupportedHeader[5] = 1
+        do {
+            _ = try ROBLidarScanFrame.decode(unsupportedHeader)
+            throw FixtureFailure.failed("Unsupported binary scan flags were accepted")
+        } catch ROBLidarTelemetryEncodingError.invalid {
+            // Expected: reserved header flags are strict for version 1.
+        }
+        do {
+            _ = try ROBLidarScanFrame.decode(encodedScan + Data([0]))
+            throw FixtureFailure.failed("Binary scan with trailing data was accepted")
+        } catch ROBLidarTelemetryEncodingError.invalid {
+            // Expected: the payload size must exactly match the point count.
+        }
+        do {
+            _ = try ROBLidarScanFrame.decode(Data("{\"kind\":\"scan\"}".utf8))
+            throw FixtureFailure.failed("Removed JSON telemetry schema was still accepted")
+        } catch {
+            // Expected: no compatibility decoder exists.
         }
     }
 

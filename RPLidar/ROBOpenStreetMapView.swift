@@ -46,6 +46,69 @@ struct ROBLidarOverlayCalibration: Equatable {
     }
 }
 
+enum ROBLidarBaseMapStyle: String, CaseIterable {
+    case navigation
+    case terrain
+    case satellite
+
+    var title: String {
+        switch self {
+        case .navigation: return "Navigation"
+        case .terrain: return "Terrain"
+        case .satellite: return "Satellite"
+        }
+    }
+
+    var attribution: String? {
+        switch self {
+        case .navigation:
+            return "© OpenStreetMap contributors"
+        case .terrain:
+            return "Map © OpenStreetMap • Style © OpenTopoMap"
+        case .satellite:
+            return nil
+        }
+    }
+
+    fileprivate var tileURLTemplate: String? {
+        switch self {
+        case .navigation:
+            return "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        case .terrain:
+            return "https://tile.opentopomap.org/{z}/{x}/{y}.png"
+        case .satellite:
+            return nil
+        }
+    }
+}
+
+enum ROBLidarBaseMapStyleStore {
+    private static let key = "RPLidar.OpenStreetMap.BaseMapStyle.v1"
+
+    static func load(defaults: UserDefaults = .standard) -> ROBLidarBaseMapStyle {
+        defaults.string(forKey: key).flatMap(ROBLidarBaseMapStyle.init(rawValue:))
+            ?? .navigation
+    }
+
+    static func save(_ style: ROBLidarBaseMapStyle, defaults: UserDefaults = .standard) {
+        defaults.set(style.rawValue, forKey: key)
+    }
+}
+
+enum ROBLidarBaseMapLayer {
+    static func install(_ style: ROBLidarBaseMapStyle, on mapView: MKMapView) -> MKTileOverlay? {
+        mapView.mapType = style == .satellite ? .satellite : .standard
+        guard let template = style.tileURLTemplate else { return nil }
+        let overlay = MKTileOverlay(urlTemplate: template)
+        overlay.tileSize = CGSize(width: 256, height: 256)
+        overlay.minimumZ = 1
+        overlay.maximumZ = style == .terrain ? 17 : 19
+        overlay.canReplaceMapContent = true
+        mapView.addOverlay(overlay, level: .aboveLabels)
+        return overlay
+    }
+}
+
 private enum ROBLidarOverlayCalibrationStore {
     private static let scaleKey = "RPLidar.OpenStreetMap.OverlayScale.v1"
     private static let northRotationKey = "RPLidar.OpenStreetMap.NorthRotationDegrees.v1"
@@ -90,6 +153,8 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     private var lidarReturnCount = 0
     private var hasOccupancyMap = false
     private(set) var overlayCalibration = ROBLidarOverlayCalibrationStore.load()
+    private(set) var baseMapStyle = ROBLidarBaseMapStyleStore.load()
+    private var baseTileOverlay: MKTileOverlay?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -115,14 +180,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         mapView.pointOfInterestFilter = .excludingAll
         addSubview(mapView)
 
-        let openStreetMap = MKTileOverlay(
-            urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-        )
-        openStreetMap.tileSize = CGSize(width: 256, height: 256)
-        openStreetMap.minimumZ = 1
-        openStreetMap.maximumZ = 19
-        openStreetMap.canReplaceMapContent = true
-        mapView.addOverlay(openStreetMap, level: .aboveLabels)
+        applyBaseMapStyle(baseMapStyle, persist: false)
 
         lidarView.translatesAutoresizingMaskIntoConstraints = false
         lidarView.isUserInteractionEnabled = false
@@ -147,7 +205,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
             symbol: "slider.horizontal.3",
             action: #selector(calibrationPressed)
         )
-        calibrationButton.accessibilityLabel = "Lidar overlay calibration"
+        calibrationButton.accessibilityLabel = "Map and lidar settings"
 
         scanStatusLabel.translatesAutoresizingMaskIntoConstraints = false
         scanStatusLabel.text = "LIDAR / AWAITING LOCAL FRAME"
@@ -174,7 +232,8 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         addSubview(instructionLabel)
 
         attributionLabel.translatesAutoresizingMaskIntoConstraints = false
-        attributionLabel.text = "© OpenStreetMap contributors"
+        attributionLabel.text = baseMapStyle.attribution
+        attributionLabel.isHidden = baseMapStyle.attribution == nil
         attributionLabel.font = .preferredFont(forTextStyle: .caption2)
         attributionLabel.textColor = UIColor.white.withAlphaComponent(0.72)
         attributionLabel.backgroundColor = UIColor(red: 0.02, green: 0.027, blue: 0.031, alpha: 0.82)
@@ -293,6 +352,24 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         ROBLidarOverlayCalibrationStore.save(calibration)
         lidarView.calibration = calibration
         refreshScanStatus()
+        lidarView.setNeedsDisplay()
+    }
+
+    func setBaseMapStyle(_ style: ROBLidarBaseMapStyle) {
+        applyBaseMapStyle(style, persist: true)
+    }
+
+    private func applyBaseMapStyle(_ style: ROBLidarBaseMapStyle, persist: Bool) {
+        if let baseTileOverlay {
+            mapView.removeOverlay(baseTileOverlay)
+        }
+        baseMapStyle = style
+        baseTileOverlay = ROBLidarBaseMapLayer.install(style, on: mapView)
+        attributionLabel.text = style.attribution
+        attributionLabel.isHidden = style.attribution == nil
+        if persist {
+            ROBLidarBaseMapStyleStore.save(style)
+        }
         lidarView.setNeedsDisplay()
     }
 

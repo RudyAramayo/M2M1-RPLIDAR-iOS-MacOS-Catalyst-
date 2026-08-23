@@ -223,7 +223,7 @@ enum ROBLidarTelemetryEncodingError: LocalizedError {
 }
 
 /// A persisted scan sequence. The transport also has its own per-connection
-/// own per-connection frame sequence; this publisher sequence lets Cerebro
+/// frame sequence; this publisher sequence lets Cerebro
 /// reject stale application messages independently, including after reconnect.
 final class ROBLidarTelemetrySequenceStore {
     static let shared = ROBLidarTelemetrySequenceStore()
