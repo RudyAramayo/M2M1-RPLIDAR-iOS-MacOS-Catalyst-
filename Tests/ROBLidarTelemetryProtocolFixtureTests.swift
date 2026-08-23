@@ -20,6 +20,7 @@ struct ROBLidarTelemetryProtocolFixtureTests {
         try telemetryFixtures()
         try sequenceFixtures()
         try localIPCFixtures()
+        try transportRouteFixtures()
         guard DataMessageType.lidarTelemetry.rawValue == 7 else {
             throw FixtureFailure.failed("Lidar telemetry did not retain frame kind 7")
         }
@@ -369,6 +370,31 @@ struct ROBLidarTelemetryProtocolFixtureTests {
             throw FixtureFailure.failed("Unavailable local IPC path suppressed network fallback")
         }
         unavailableClient.stop()
+    }
+
+    private static func transportRouteFixtures() throws {
+        guard ROBLidarTelemetryTransportRoute.resolve(
+                publishingEnabled: true,
+                localIPCReady: true,
+                quicReady: true
+              ) == .localIPC,
+              ROBLidarTelemetryTransportRoute.resolve(
+                publishingEnabled: true,
+                localIPCReady: false,
+                quicReady: true
+              ) == .quicFallback,
+              ROBLidarTelemetryTransportRoute.resolve(
+                publishingEnabled: true,
+                localIPCReady: false,
+                quicReady: false
+              ) == .disconnected,
+              ROBLidarTelemetryTransportRoute.resolve(
+                publishingEnabled: false,
+                localIPCReady: true,
+                quicReady: true
+              ) == .publishingDisabled else {
+            throw FixtureFailure.failed("Telemetry transport route precedence changed")
+        }
     }
 
     private static func credential(

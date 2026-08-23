@@ -77,6 +77,12 @@ revocation, sequence, freshness, and rate checks as the network path. Enable
 portal and regenerate their provisioning profiles. If the App Group container
 cannot be opened, QUIC remains the safe default.
 
+The pairing overlay shows the live publishing route: green **LOCAL IPC • FAST**
+means scans use the same-Mac socket, orange **QUIC FALLBACK** means scans use
+the authenticated network path while local IPC reconnects, and red
+**DISCONNECTED** means neither transport is currently ready. When local IPC is
+active, the badge also reports whether QUIC standby is ready or reconnecting.
+
 This project cannot call Mach-service NSXPC directly because SlamwareSDK makes
 it an iPhoneOS/Designed-for-iPad target and those XPC APIs are unavailable on
 iOS. The App Group Unix socket is the supported low-overhead local IPC path for

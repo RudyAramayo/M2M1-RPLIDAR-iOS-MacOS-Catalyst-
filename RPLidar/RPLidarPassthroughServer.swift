@@ -42,6 +42,9 @@ final class RPLidarPassthroughServer {
     let operationQueue = DispatchQueue(label: "com.orbitusrobotics.rplidar.passthrough")
     let autoNetClient = AutoNetClient(service: AutoNetClient.defaultService)
     private lazy var localIPCClient = ROBLidarLocalIPCClient(
+        stateDidChange: { [weak self] ready in
+            self?.setLocalIPCReady(ready)
+        },
         deliveryDidFail: { [weak self] envelope in
             guard let scanData = ROBLidarLocalIPCEnvelope.scanData(from: envelope) else { return }
             self?.autoNetClient.publishLidarTelemetry(scanData)
@@ -60,6 +63,7 @@ final class RPLidarPassthroughServer {
     private var started = false
     private var isReconnecting = false
     private var reconnectScheduled = false
+    private var localIPCReady = false
     private var publisherDeviceID: UUID?
     private var localIPCSharedSecret: Data?
     private var latestScan: RPLidarScanSnapshot?
@@ -150,6 +154,23 @@ final class RPLidarPassthroughServer {
         stateLock.lock()
         defer { stateLock.unlock() }
         return started
+    }
+
+    var isLocalIPCReady: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return localIPCReady
+    }
+
+    private func setLocalIPCReady(_ ready: Bool) {
+        stateLock.lock()
+        let changed = localIPCReady != ready
+        localIPCReady = ready
+        stateLock.unlock()
+        guard changed else { return }
+        print(ready
+            ? "RPLidar telemetry transport: local IPC ready"
+            : "RPLidar telemetry transport: local IPC unavailable; QUIC fallback enabled")
     }
 
     private func installTimers() {

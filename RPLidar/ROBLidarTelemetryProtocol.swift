@@ -709,6 +709,24 @@ final class ROBLidarLocalIPCServer {
     }
 }
 
+enum ROBLidarTelemetryTransportRoute: Equatable {
+    case localIPC
+    case quicFallback
+    case disconnected
+    case publishingDisabled
+
+    static func resolve(
+        publishingEnabled: Bool,
+        localIPCReady: Bool,
+        quicReady: Bool
+    ) -> Self {
+        guard publishingEnabled else { return .publishingDisabled }
+        if localIPCReady { return .localIPC }
+        if quicReady { return .quicFallback }
+        return .disconnected
+    }
+}
+
 /// A persisted scan sequence. The transport also has its own per-connection
 /// frame sequence; this publisher sequence lets Cerebro
 /// reject stale application messages independently, including after reconnect.

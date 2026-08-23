@@ -22,6 +22,7 @@ class RPLidarViewController: UIViewController {
     private var lastOpenStreetMapSearchUptime: TimeInterval = 0
     private var mapZoomScale: CGFloat = 1
     private let transportStatusLabel = UILabel()
+    private let transportRouteLabel = UILabel()
     private let pairButton = UIButton(type: .system)
     private let forgetPairingButton = UIButton(type: .system)
     private let mapStatusLabel = UILabel()
@@ -743,6 +744,17 @@ class RPLidarViewController: UIViewController {
         transportStatusLabel.textAlignment = .center
         transportStatusLabel.numberOfLines = 2
 
+        transportRouteLabel.font = .monospacedSystemFont(ofSize: 12, weight: .bold)
+        transportRouteLabel.textAlignment = .center
+        transportRouteLabel.numberOfLines = 2
+        transportRouteLabel.adjustsFontSizeToFitWidth = true
+        transportRouteLabel.minimumScaleFactor = 0.82
+        transportRouteLabel.layer.cornerRadius = 8
+        transportRouteLabel.clipsToBounds = true
+        transportRouteLabel.accessibilityLabel = "Lidar telemetry transport"
+        transportRouteLabel.accessibilityIdentifier = "RPLidarTransportRoute"
+        transportRouteLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 42).isActive = true
+
         pairButton.setTitle("Pair RPLidar…", for: .normal)
         pairButton.addTarget(self, action: #selector(showPairingPrompt), for: .touchUpInside)
 
@@ -751,6 +763,7 @@ class RPLidarViewController: UIViewController {
 
         let stack = UIStackView(arrangedSubviews: [
             transportStatusLabel,
+            transportRouteLabel,
             pairButton,
             forgetPairingButton
         ])
@@ -767,7 +780,7 @@ class RPLidarViewController: UIViewController {
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 60),
             stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
-            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 210)
+            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 230)
         ])
     }
 
@@ -779,6 +792,12 @@ class RPLidarViewController: UIViewController {
         let paired = autoNetClient.isPairingConfigured
         let stored = autoNetClient.hasStoredPairing
         let connected = autoNetClient.isConnected
+        let route = ROBLidarTelemetryTransportRoute.resolve(
+            publishingEnabled: paired && !autoNetClient.pairingNeedsReplacement,
+            localIPCReady: passthroughServer.isLocalIPCReady,
+            quicReady: connected
+        )
+        updateTransportRouteIndicator(route, quicStandbyReady: connected)
         if autoNetClient.pairingNeedsReplacement {
             transportStatusLabel.text = "Cerebro: re-pair required\nCertificate or code rejected"
             transportStatusLabel.textColor = .systemRed
@@ -797,6 +816,38 @@ class RPLidarViewController: UIViewController {
         }
         pairButton.setTitle(stored ? "Replace Pairing…" : "Pair RPLidar…", for: .normal)
         forgetPairingButton.isEnabled = stored
+    }
+
+    private func updateTransportRouteIndicator(
+        _ route: ROBLidarTelemetryTransportRoute,
+        quicStandbyReady: Bool
+    ) {
+        switch route {
+        case .localIPC:
+            transportRouteLabel.text = quicStandbyReady
+                ? "● LOCAL IPC • FAST\nQUIC standby ready"
+                : "● LOCAL IPC • FAST\nQUIC standby reconnecting"
+            transportRouteLabel.textColor = .white
+            transportRouteLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.82)
+            transportRouteLabel.accessibilityValue = quicStandbyReady
+                ? "Local IPC fast path, QUIC standby ready"
+                : "Local IPC fast path, QUIC standby reconnecting"
+        case .quicFallback:
+            transportRouteLabel.text = "● QUIC FALLBACK\nLocal IPC reconnecting"
+            transportRouteLabel.textColor = .white
+            transportRouteLabel.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.88)
+            transportRouteLabel.accessibilityValue = "QUIC network fallback"
+        case .disconnected:
+            transportRouteLabel.text = "● DISCONNECTED\nWaiting for Cerebro transports"
+            transportRouteLabel.textColor = .white
+            transportRouteLabel.backgroundColor = UIColor.systemRed.withAlphaComponent(0.82)
+            transportRouteLabel.accessibilityValue = "No active telemetry transport"
+        case .publishingDisabled:
+            transportRouteLabel.text = "● PUBLISHING DISABLED\nValid pairing required"
+            transportRouteLabel.textColor = .secondaryLabel
+            transportRouteLabel.backgroundColor = .secondarySystemBackground
+            transportRouteLabel.accessibilityValue = "Publishing disabled"
+        }
     }
 
     @objc private func showPairingPrompt() {
