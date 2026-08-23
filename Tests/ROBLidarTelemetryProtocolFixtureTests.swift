@@ -19,6 +19,7 @@ struct ROBLidarTelemetryProtocolFixtureTests {
         try certificateMigrationFixtures()
         try telemetryFixtures()
         try sequenceFixtures()
+        try localIPCFixtures()
         guard DataMessageType.lidarTelemetry.rawValue == 7 else {
             throw FixtureFailure.failed("Lidar telemetry did not retain frame kind 7")
         }
@@ -260,6 +261,114 @@ struct ROBLidarTelemetryProtocolFixtureTests {
         guard let reloaded = reloadedStore.next(deviceID: deviceID), reloaded > prior else {
             throw FixtureFailure.failed("Telemetry sequence high-watermark did not persist")
         }
+    }
+
+    private static func localIPCFixtures() throws {
+        let suffix = UUID().uuidString.prefix(8).lowercased()
+        let socketURL = URL(fileURLWithPath: "/tmp/rob-lidar-\(suffix).sock")
+        let unavailableURL = URL(fileURLWithPath: "/tmp/rob-lidar-missing-\(suffix).sock")
+        defer {
+            try? FileManager.default.removeItem(at: socketURL)
+            try? FileManager.default.removeItem(at: unavailableURL)
+        }
+
+        let serverReady = DispatchSemaphore(value: 0)
+        let clientReady = DispatchSemaphore(value: 0)
+        let scanReceived = DispatchSemaphore(value: 0)
+        let receivedLock = NSLock()
+        var receivedData: Data?
+        let server = ROBLidarLocalIPCServer(
+            socketURL: socketURL,
+            stateDidChange: { ready in
+                if ready { serverReady.signal() }
+            },
+            receiveScan: { data in
+                receivedLock.lock()
+                receivedData = data
+                receivedLock.unlock()
+                scanReceived.signal()
+            }
+        )
+        let client = ROBLidarLocalIPCClient(
+            socketURL: socketURL,
+            stateDidChange: { ready in
+                if ready { clientReady.signal() }
+            }
+        )
+        defer {
+            client.stop()
+            server.stop()
+        }
+
+        server.start()
+        guard serverReady.wait(timeout: .now() + 3) == .success else {
+            throw FixtureFailure.failed("Local IPC server did not become ready")
+        }
+        client.start()
+        guard clientReady.wait(timeout: .now() + 3) == .success else {
+            throw FixtureFailure.failed("Local IPC client did not become ready")
+        }
+
+        let scan = ROBLidarScanFrame(
+            deviceID: UUID(),
+            sequence: 1,
+            sentAtMilliseconds: UInt64(Date().timeIntervalSince1970 * 1_000),
+            x: 0,
+            y: 0,
+            z: 0,
+            yaw: 0,
+            pitch: 0,
+            roll: 0,
+            points: (0..<ROBLidarScanFrame.minimumPointCount).map { index in
+                ROBLidarWirePoint(
+                    distanceMeters: 0.5 + Float(index) * 0.01,
+                    angleRadians: Float(index) * 0.1
+                )
+            }
+        )
+        let encoded = try scan.encoded()
+        let sharedSecret = Data(repeating: 0xA5, count: 32)
+        guard let envelope = ROBLidarLocalIPCEnvelope.seal(
+            scanData: encoded,
+            sharedSecret: sharedSecret
+        ) else {
+            throw FixtureFailure.failed("Local IPC could not authenticate a valid scan")
+        }
+        guard envelope.count == encoded.count + ROBLidarLocalIPCEnvelope.authenticationCodeLength,
+              ROBLidarLocalIPCEnvelope.open(
+                envelope,
+                sharedSecret: sharedSecret
+              ) == encoded else {
+            throw FixtureFailure.failed("Local IPC authenticated envelope did not round-trip")
+        }
+        var tamperedEnvelope = envelope
+        tamperedEnvelope[tamperedEnvelope.startIndex] ^= 0x01
+        guard ROBLidarLocalIPCEnvelope.open(
+            tamperedEnvelope,
+            sharedSecret: sharedSecret
+        ) == nil else {
+            throw FixtureFailure.failed("Local IPC accepted a tampered scan")
+        }
+        guard client.sendLatestIfReady(envelope) else {
+            throw FixtureFailure.failed("Ready local IPC client rejected a scan")
+        }
+        guard scanReceived.wait(timeout: .now() + 3) == .success else {
+            throw FixtureFailure.failed("Local IPC scan did not reach the server")
+        }
+        receivedLock.lock()
+        let delivered = receivedData
+        receivedLock.unlock()
+        guard delivered == envelope else {
+            throw FixtureFailure.failed("Local IPC changed the authenticated scan envelope")
+        }
+
+        let unavailableClient = ROBLidarLocalIPCClient(socketURL: unavailableURL)
+        unavailableClient.start()
+        guard !unavailableClient.sendLatestIfReady(envelope) else {
+            unavailableClient.stop()
+            throw FixtureFailure.failed("Unavailable local IPC path suppressed network fallback")
+        }
+        unavailableClient.stop()
     }
 
     private static func credential(

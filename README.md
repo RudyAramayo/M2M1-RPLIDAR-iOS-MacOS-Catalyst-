@@ -5,9 +5,11 @@ https://www.slamtec.com/en/Support#rplidar-mapper
 
 ## Secure Cerebro publishing
 
-RPLidar now discovers only `_robctl._udp` and publishes compact binary frame-7 scans
-over the same TLS 1.3 QUIC transport used by Cerebro. The Cerebro certificate is
-pinned and a reciprocal HMAC pairing proof completes before any scan is sent.
+RPLidar now discovers only `_robctl._udp` and publishes compact binary scans to
+Cerebro. On the same Mac, scan bytes prefer a protected local Unix-domain IPC
+socket; authenticated TLS 1.3 QUIC remains connected and takes over
+automatically whenever local delivery is unavailable. The Cerebro certificate
+is pinned and a reciprocal HMAC pairing proof completes before publishing.
 Full occupancy/composite maps stay local and are never sent over ROBControl.
 There is no automatic plaintext or `_roboNet._tcp` fallback.
 
@@ -52,9 +54,34 @@ Opening or dismissing the GUI therefore does not start or stop the lidar feed.
 
 Wire scans use the fixed-layout `RLS1` format: a 68-byte pose/identity header
 plus four bytes per valid return (millimeters and angle). A 720-point scan is
-2,948 bytes and roughly 14.7 KB/s at 5 Hz before QUIC overhead. The transport
-allows one send in flight and retains only the newest pending scan, preventing
-slow Wi-Fi from creating a stale ordered-stream backlog.
+2,948 bytes and roughly 14.7 KB/s at 5 Hz before transport overhead. Both local
+IPC and QUIC allow one send in flight and retain only the newest pending scan,
+preventing a slow receiver or Wi-Fi link from creating a stale ordered-stream
+backlog.
+
+### Same-Mac local transport
+
+RPLidar and Cerebro share the App Group
+`group.com.orbitusrobotics.rob`. Cerebro owns
+`rplidar-cerebro-v1.sock` in that group container and RPLidar reconnects to it
+in the background. A ready local connection receives the exact `RLS1` payload
+without using an IP interface. A missing endpoint falls through to QUIC
+immediately; an asynchronous local-send failure forwards the newest
+undelivered sample to QUIC and keeps using the network until local IPC returns.
+
+Cerebro resolves the embedded device UUID against its server-owned pairing
+registry and verifies a 32-byte HMAC-SHA256 made with that publisher's existing
+pairing secret for every local sample. It then applies the same role,
+revocation, sequence, freshness, and rate checks as the network path. Enable
+`group.com.orbitusrobotics.rob` for both app identifiers in the Apple Developer
+portal and regenerate their provisioning profiles. If the App Group container
+cannot be opened, QUIC remains the safe default.
+
+This project cannot call Mach-service NSXPC directly because SlamwareSDK makes
+it an iPhoneOS/Designed-for-iPad target and those XPC APIs are unavailable on
+iOS. The App Group Unix socket is the supported low-overhead local IPC path for
+the shipping target. True NSXPC would require a native macOS or Mac Catalyst
+SlamwareSDK binary first.
 
 - Debug builds register `ROBDevelopmentMode` as enabled and open the map GUI,
   matching Cerebro's development-mode behavior.

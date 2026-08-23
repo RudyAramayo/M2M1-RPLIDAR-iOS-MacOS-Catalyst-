@@ -41,6 +41,12 @@ final class RPLidarPassthroughServer {
 
     let operationQueue = DispatchQueue(label: "com.orbitusrobotics.rplidar.passthrough")
     let autoNetClient = AutoNetClient(service: AutoNetClient.defaultService)
+    private lazy var localIPCClient = ROBLidarLocalIPCClient(
+        deliveryDidFail: { [weak self] envelope in
+            guard let scanData = ROBLidarLocalIPCEnvelope.scanData(from: envelope) else { return }
+            self?.autoNetClient.publishLidarTelemetry(scanData)
+        }
+    )
 
     weak var delegate: RPLidarPassthroughServerDelegate? {
         didSet { deliverLatestSnapshots() }
@@ -55,6 +61,7 @@ final class RPLidarPassthroughServer {
     private var isReconnecting = false
     private var reconnectScheduled = false
     private var publisherDeviceID: UUID?
+    private var localIPCSharedSecret: Data?
     private var latestScan: RPLidarScanSnapshot?
     private var latestMap: RPLidarMapSnapshot?
     private var latestPose: RPPose?
@@ -70,6 +77,7 @@ final class RPLidarPassthroughServer {
         started = true
         stateLock.unlock()
 
+        localIPCClient.start()
         autoNetClient.start()
         refreshPublisherIdentity()
         installTimers()
@@ -91,6 +99,7 @@ final class RPLidarPassthroughServer {
         stateLock.unlock()
 
         activeTimers.forEach { $0.cancel() }
+        localIPCClient.stop()
         autoNetClient.stop()
         operationQueue.async { [weak self] in
             self?.lidar = nil
@@ -101,9 +110,10 @@ final class RPLidarPassthroughServer {
     }
 
     func refreshPublisherIdentity() {
-        let deviceID = autoNetClient.publisherDeviceID
+        let credential = try? ROBControlPairing.clientAuthenticationMaterial()
         operationQueue.async { [weak self] in
-            self?.publisherDeviceID = deviceID
+            self?.publisherDeviceID = credential?.controllerID
+            self?.localIPCSharedSecret = credential?.sharedSecret
         }
     }
 
@@ -319,7 +329,17 @@ final class RPLidarPassthroughServer {
             points: points
         )
         do {
-            autoNetClient.publishLidarTelemetry(try frame.encoded())
+            let data = try frame.encoded()
+            if let localIPCSharedSecret,
+               let envelope = ROBLidarLocalIPCEnvelope.seal(
+                   scanData: data,
+                   sharedSecret: localIPCSharedSecret
+               ),
+               localIPCClient.sendLatestIfReady(envelope) {
+                return
+            } else {
+                autoNetClient.publishLidarTelemetry(data)
+            }
         } catch {
             print("RPLidar scan was not published: \(error.localizedDescription)")
         }
