@@ -52,6 +52,8 @@
 	<string>Storage of maps</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>RPLidar publishes authenticated obstacle scans and maps to the paired Cerebro robot controller.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>RPLidar uses this device's location to place ROB and its lidar scan on the OpenStreetMap destination map.</string>
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>LIDAR</string>
 	<key>UILaunchStoryboardName</key>

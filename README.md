@@ -43,6 +43,37 @@ launch-scheme value therefore cannot restore or overwrite a credential later.
   **Reset Map** to cancel recovery, clear the active map, and resume live
   mapping. Saved files are not deleted by a reset.
 
+## Headless passthrough and development GUI
+
+The lidar connection, polling, authenticated frame-7 publishing, reconnects,
+and periodic map storage are owned by a UI-independent passthrough service.
+Opening or dismissing the GUI therefore does not start or stop the lidar feed.
+
+- Debug builds register `ROBDevelopmentMode` as enabled and open the map GUI,
+  matching Cerebro's development-mode behavior.
+- Release builds register Development Mode as disabled and keep the
+  storyboard-managed window hidden while the passthrough service continues.
+- The **RPLidar** menu always offers **Open RPLidar Map**, even when Development
+  Mode is disabled. Its checkmarked **Development Mode** item controls only
+  whether the map opens automatically on future launches.
+- `--rplidar-gui` and `--rplidar-headless` override that default. The
+  `RPLIDAR_GUI` environment variable accepts `1`/`true` or `0`/`false` as an
+  alternate override.
+
+Headless means the UIKit map-rendering view is torn down before it receives
+lidar snapshots; the tracked window remains available for the explicit menu
+command. This remains an iOS app, so iOS can still suspend its process after it
+enters the background; it is not an unrestricted system daemon.
+
+The GUI now uses ROBController's `ROBOpenStreetMapView` as its live main map:
+OpenStreetMap tiles, the ROB location, lidar returns, occupancy imagery, and the
+selected destination share one surface. Tap the map to select a point, use
+**Search destination** for Nominatim place search, or open **Destinations…** to
+review the persistent **Recent Destinations** table. Rows can be deleted and
+the history can be cleared. These are local diagnostic selections. RPLidar
+retains its restricted `lidarPublisher` credential and does not send
+operator/navigation commands.
+
 The bundled SlamwareSDK framework contains iPhoneOS armv7/arm64 slices and
 imports UIKit. The project builds for iOS and can run on supported Apple-silicon
 Macs as an iPad/iPhone app, but it is not a native macOS or true Mac Catalyst

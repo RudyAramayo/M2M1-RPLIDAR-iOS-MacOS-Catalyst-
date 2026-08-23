@@ -6,24 +6,19 @@
 //  Copyright © 2021 OrbitusRobotics. All rights reserved.
 //
 import UIKit
-import Network
+import CoreLocation
 import SlamwareSDK
 import UniformTypeIdentifiers
 
 class RPLidarViewController: UIViewController {
-    
-    var isReconnecting: Bool = false
-    
-    static let kLidarPulseFrequency = 0.20
-    static let kMapPulseFrequency = 5.0
-    static let kMapLocalStorageFrequency = 30.0
-    
-    var rpLidar: RPLidarController?
-    private let autoNetClient = AutoNetClient(service: AutoNetClient.defaultService)
-    private let telemetrySequenceStore = ROBLidarTelemetrySequenceStore.shared
-    private var publisherDeviceID: UUID?
-    private var runtimeTimers: [Timer] = []
+    private let passthroughServer = RPLidarPassthroughServer.shared
+    private var rpLidar: RPLidarController? { passthroughServer.lidar }
+    private var autoNetClient: AutoNetClient { passthroughServer.autoNetClient }
+    private let openStreetMapView = ROBOpenStreetMapView(frame: .zero)
+    private let locationManager = CLLocationManager()
+    private var latestDeviceLocation: CLLocation?
     private var transportStatusTimer: Timer?
+    private var lastOpenStreetMapSearchUptime: TimeInterval = 0
     private var mapZoomScale: CGFloat = 1
     private let transportStatusLabel = UILabel()
     private let pairButton = UIButton(type: .system)
@@ -32,18 +27,19 @@ class RPLidarViewController: UIViewController {
     private let resetMapButton = UIButton(type: .system)
     private let loadMapButton = UIButton(type: .system)
     private let saveMapButton = UIButton(type: .system)
+    private let destinationsButton = UIButton(type: .system)
     private var mapDocumentOperation = MapDocumentOperation.none
     private var relocalizationMonitorGeneration = 0
     let distance_filter: Float = 1.0
     let angleFilter: Float = 0.50
     
-    private var queue = DispatchQueue(label: "lidar.queue")
+    private var queue: DispatchQueue { passthroughServer.operationQueue }
     
     var currentLocation: RPLocation?
     var currentMap: RPMap?
     var currentCompositeMap: RPCompositeMap?
     var currentPose: RPPose?
-    var currentLaserPoints: [RPLaserPoint]?
+    var currentLaserPoints: [RPLidarScanPoint]?
     
     @IBOutlet var rpLidarImageView: UIImageView!
     @IBOutlet var rpLidarPolarView: RPLidarPolarView!
@@ -52,54 +48,11 @@ class RPLidarViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        //-----
-        // Unit test usage of obj-c exception catching which is not the same as swift exception catching
-        //try? rpLidar.performRiskyOperation()
-        //-----
-        let destinationHost = NWEndpoint.Host("192.168.11.1")
-        let destinationPort = NWEndpoint.Port(rawValue: 1445)!
-        let destinationEndpoint = NWEndpoint.hostPort(host: destinationHost, port: destinationPort)
-        //-----
-        //tcp connection to the RPLidar itself
-        let connection = NWConnection(to: destinationEndpoint, using: .tcp)
-        //udp connection to the RPLidar itself
-        //let connection = NWConnection(to: destinationEndpoint, using: .udp)
-        //-----
-        
-        connection.pathUpdateHandler = { path in
-            switch path.status {
-            case .satisfied:
-                print("Path to destination is available")
-                self.reconnect()
-                //self.rpLidar = RPLidarController(ip: "192.168.11.1")
-                if let status = self.rpLidar?.status {
-                    switch status {
-                    case .WORKING:
-                        print("discovery working")
-                    case .STOPPED:
-                        print("discovery stopped")
-                    case .ERROR:
-                        print("discovery error")
-                    @unknown default:
-                        print("unknown default error")
-                    }
-                }
-                
-            case .unsatisfied:
-                print("Path to destination is not available")
-            case .requiresConnection:
-                print("Path to destination needs a connection attempt")
-            @unknown default:
-                print("Unknown path status")
-            }
-            
-            // Access properties like path.usesInterfaceType, path.isExpensive, etc.
-        }
-        connection.start(queue: .global())
-        
-        
-        autoNetClient.start()
+
+        installOpenStreetMap()
+        configureLocationServices()
+        passthroughServer.delegate = self
+        passthroughServer.start()
         installTransportControls()
         installMapControls()
         refreshPublisherIdentity()
@@ -116,6 +69,16 @@ class RPLidarViewController: UIViewController {
         applyMapZoom()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        startLocationUpdatesIfAuthorized()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        locationManager.stopUpdatingLocation()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
@@ -129,23 +92,55 @@ class RPLidarViewController: UIViewController {
 
     deinit {
         transportStatusTimer?.invalidate()
-        runtimeTimers.forEach { $0.invalidate() }
-        autoNetClient.stop()
+        locationManager.stopUpdatingLocation()
+        passthroughServer.detach(self)
     }
-    
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
 
-        Timer.scheduledTimer(timeInterval: 5, target: self, selector: #selector(appStartup), userInfo: nil, repeats: false)
+    private func installOpenStreetMap() {
+        openStreetMapView.translatesAutoresizingMaskIntoConstraints = false
+        openStreetMapView.mapDelegate = self
+        view.insertSubview(openStreetMapView, at: 0)
+        NSLayoutConstraint.activate([
+            openStreetMapView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            openStreetMapView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            openStreetMapView.topAnchor.constraint(equalTo: view.topAnchor),
+            openStreetMapView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+
+        // These storyboard views were the old full-screen map renderer. Keep
+        // them as data sinks for compatibility, but do not let them cover the
+        // OpenStreetMap surface or its controls.
+        rpLidarImageView.isHidden = true
+        rpLidarPolarView.isHidden = true
+        locationLabel.superview?.superview?.isHidden = true
+
+        if let recent = RPLidarDestinationHistoryStore().destinations.first {
+            openStreetMapView.showDestination(
+                latitude: recent.latitude,
+                longitude: recent.longitude,
+                title: recent.displayName
+            )
+        }
     }
-    
-    @objc func appStartup() {
-        guard runtimeTimers.isEmpty else { return }
-        runtimeTimers = [
-            Timer.scheduledTimer(timeInterval: RPLidarViewController.kLidarPulseFrequency, target: self, selector: #selector(lidarPulse), userInfo: nil, repeats: true),
-            Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapPulseFrequency, target: self, selector: #selector(mapPulse), userInfo: nil, repeats: true),
-            Timer.scheduledTimer(timeInterval: RPLidarViewController.kMapLocalStorageFrequency, target: self, selector: #selector(mapStorage), userInfo: nil, repeats: true)
-        ]
+
+    private func configureLocationServices() {
+        locationManager.delegate = self
+        locationManager.distanceFilter = 2
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+    }
+
+    private func startLocationUpdatesIfAuthorized() {
+        switch locationManager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            locationManager.startUpdatingLocation()
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+        case .denied, .restricted:
+            mapStatusLabel.text = "Location unavailable — tap or search to choose a destination"
+            mapStatusLabel.textColor = .systemYellow
+        @unknown default:
+            break
+        }
     }
     
     @IBAction func clearMapAction() {
@@ -172,199 +167,8 @@ class RPLidarViewController: UIViewController {
         rpLidarPolarView.transform = transform
     }
     
-    @objc func lidarPulse() {
-        queue.async {
-            do {
-                var dataString = ""
-                guard let scan = try self.rpLidar?.getLaserScan() else { return }
-
-                let pose: RPPose?
-                if let scanPose = scan.pose {
-                    pose = scanPose
-                } else {
-                    pose = try self.rpLidar?.getPose()
-                }
-                let location: RPLocation?
-                if let pose {
-                    location = pose.location
-                } else {
-                    location = try self.rpLidar?.getLocation()
-                }
-
-                self.currentPose = pose
-                self.currentLocation = location
-
-                if let location {
-                    dataString += "\(location.x):\(location.y):\(location.z)\n"
-                } else {
-                    dataString += "0:0:0\n"
-                }
-                if let pose {
-                    dataString += "\(pose.yaw()):\(pose.pitch()):\(pose.roll())\n"
-                } else {
-                    dataString += "0:0:0\n"
-                }
-
-                let laserPoints = scan.laserPoints
-                self.currentLaserPoints = laserPoints
-                var renderedLaserPoints: [RPLidarScanPoint] = []
-                renderedLaserPoints.reserveCapacity(laserPoints.count)
-                for laserPoint in laserPoints where laserPoint.valid {
-                    renderedLaserPoints.append(RPLidarScanPoint(
-                        distance: CGFloat(laserPoint.distance),
-                        angle: CGFloat(laserPoint.angle)
-                    ))
-                    dataString += "\(laserPoint.distance):\(laserPoint.angle)\n"
-                }
-
-                let robotPose = pose.map {
-                    RPLidarPose2D(
-                        location: CGPoint(
-                            x: CGFloat($0.location.x),
-                            y: CGFloat($0.location.y)
-                        ),
-                        yaw: CGFloat($0.yaw())
-                    )
-                }
-
-                DispatchQueue.main.async {
-                    if let location {
-                        self.locationLabel.text = "x: \(location.x)  y: \(location.y)  z: \(location.z)"
-                    }
-                    if let pose {
-                        self.rotationLabel.text = "yaw: \(pose.yaw())  pitch: \(pose.pitch())  roll: \(pose.roll())"
-                    }
-                    self.rpLidarPolarView.laserPoints = renderedLaserPoints
-                    self.rpLidarPolarView.robotPose = robotPose
-                    self.rpLidarPolarView.setNeedsDisplay()
-                }
-
-                self.publishScan(dataString)
-            } catch {
-                print("RPLidar error \(error.localizedDescription)")
-                self.reconnect()
-            }
-        }
-    }
-    
-    
-    @objc func mapPulse() {
-        
-        //DispatchQueue.global(qos: .userInteractive).async {
-        queue.async {
-            do {
-                if let compositeMap = try self.rpLidar?.getCompositeMap() {
-                    self.currentCompositeMap = compositeMap
-                    
-                    if let mapMetaDataDict = compositeMap.mapMetaData.dict {
-                        print("mapMetaDataDict = \(mapMetaDataDict)")
-                    }
-                    
-                    if let mapData = compositeMap.maps {
-                        for map in mapData {
-                            if let mapLayerDict = map.mapMetaData.dict {
-                                print("mapLayerDict = \(mapLayerDict)")
-                            }
-                        }
-                    }
-                }
-                if let map = try self.rpLidar?.getCurrentMap() {
-                    self.currentMap = map
-                    let data = map.data
-                    let width = map.dimension.width
-                    let height = map.dimension.height
-                    print("origin = \(map.origin.x), \(map.origin.y)    dim = \(width), \(height)")
-                    //let imageData = UnsafeMutablePointer<Pixel>.allocate(capacity: Int(width * height))
-                    //Send the laser points to the network if the option has been enabled
-                    //-------
-                    self.publishMap(
-                        data: map.data,
-                        width: Int(map.dimension.width),
-                        height: Int(map.dimension.height)
-                    )
-                    //-------
-                    
-                    let dataBytes = data.bytes
-                    let image = self.mask(from: dataBytes, dataWidth: width, dataHeight: height)
-                    let mapFrame = self.mapFrame(from: map)
-                    DispatchQueue.main.async {
-                        self.rpLidarImageView.image = image
-                        self.rpLidarPolarView.mapFrame = mapFrame
-                        self.rpLidarPolarView.setNeedsDisplay()
-                    }
-                }
-            } catch {
-                print("RPLidar getCurrentMap error \(error)")
-                self.reconnect()
-            }
-        }
-    }
-    
     func reconnect() {
-        guard isReconnecting == false else {
-            print("Already attempting to reconnect")
-            return
-        }
-        
-        isReconnecting = true
-        
-        do {
-            try ExceptionCatcher.catchException {
-                // Simulate an Objective-C exception
-                print("RPLidarController(ip: \"192.168.11.1\")")
-                self.rpLidar = nil
-                self.rpLidar = RPLidarController(ip: "192.168.11.1")
-                self.isReconnecting = false
-            }
-        } catch {
-            print("Caught Objective-C exception reconnect: \(error.localizedDescription) -- Attempting to recoonect")
-            self.isReconnecting = false
-            self.queue.asyncAfter(deadline: .now() + 0.5, execute: {
-                self.reconnect()
-            })
-        }
-    }
-
-    private func publishScan(_ payload: String) {
-        guard let deviceID = publisherDeviceID,
-              let sequence = telemetrySequenceStore.next(deviceID: deviceID) else {
-            return
-        }
-        let message = ROBLidarTelemetryMessage.scan(
-            deviceID: deviceID,
-            sequence: sequence,
-            sentAtMilliseconds: Self.currentMilliseconds(),
-            payload: payload
-        )
-        do {
-            autoNetClient.publishLidarTelemetry(try message.encoded())
-        } catch {
-            print("RPLidar scan was not published: \(error.localizedDescription)")
-        }
-    }
-
-    private func publishMap(data: Data, width: Int, height: Int) {
-        guard let deviceID = publisherDeviceID,
-              let sequence = telemetrySequenceStore.next(deviceID: deviceID) else {
-            return
-        }
-        let message = ROBLidarTelemetryMessage.map(
-            deviceID: deviceID,
-            sequence: sequence,
-            sentAtMilliseconds: Self.currentMilliseconds(),
-            data: data,
-            width: width,
-            height: height
-        )
-        do {
-            autoNetClient.publishLidarTelemetry(try message.encoded())
-        } catch {
-            print("RPLidar map was not published: \(error.localizedDescription)")
-        }
-    }
-
-    private static func currentMilliseconds() -> UInt64 {
-        UInt64((Date().timeIntervalSince1970 * 1_000).rounded(.down))
+        passthroughServer.requestReconnect()
     }
 
     private func installMapControls() {
@@ -384,15 +188,32 @@ class RPLidarViewController: UIViewController {
         saveMapButton.setTitle("Save Map…", for: .normal)
         saveMapButton.addTarget(self, action: #selector(saveCurrentMap), for: .touchUpInside)
 
-        let buttonStack = UIStackView(arrangedSubviews: [
+        destinationsButton.setTitle("Destinations…", for: .normal)
+        destinationsButton.addTarget(
+            self,
+            action: #selector(showDestinationChooser),
+            for: .touchUpInside
+        )
+
+        let firstButtonRow = UIStackView(arrangedSubviews: [
             resetMapButton,
-            loadMapButton,
-            saveMapButton
+            loadMapButton
         ])
-        buttonStack.axis = .horizontal
+        let secondButtonRow = UIStackView(arrangedSubviews: [
+            saveMapButton,
+            destinationsButton
+        ])
+        [firstButtonRow, secondButtonRow].forEach { row in
+            row.axis = .horizontal
+            row.alignment = .fill
+            row.distribution = .fillEqually
+            row.spacing = 8
+        }
+
+        let buttonStack = UIStackView(arrangedSubviews: [firstButtonRow, secondButtonRow])
+        buttonStack.axis = .vertical
         buttonStack.alignment = .fill
-        buttonStack.distribution = .fillEqually
-        buttonStack.spacing = 8
+        buttonStack.spacing = 4
 
         let stack = UIStackView(arrangedSubviews: [mapStatusLabel, buttonStack])
         stack.axis = .vertical
@@ -407,11 +228,189 @@ class RPLidarViewController: UIViewController {
 
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-            stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -52),
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
             buttonStack.widthAnchor.constraint(greaterThanOrEqualToConstant: 260)
         ])
+    }
+
+    @objc private func showDestinationChooser() {
+        let chooser = RPLidarDestinationChooserViewController()
+        chooser.initialDeviceLocation = latestDeviceLocation ?? locationManager.location
+        chooser.onDestinationSelected = { [weak self, weak chooser] destination in
+            self?.selectDestination(
+                name: destination.displayName,
+                latitude: destination.latitude,
+                longitude: destination.longitude
+            )
+            chooser?.dismiss(animated: true)
+        }
+
+        let navigationController = UINavigationController(rootViewController: chooser)
+        navigationController.modalPresentationStyle = .pageSheet
+        if let sheet = navigationController.sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = true
+            sheet.selectedDetentIdentifier = .large
+        }
+        present(navigationController, animated: true)
+    }
+
+    private func presentDestinationSearch() {
+        let alert = UIAlertController(
+            title: "OpenStreetMap Destination",
+            message: "Search for a place, path, or address.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = "Place, path, or address"
+            field.autocorrectionType = .no
+            field.clearButtonMode = .whileEditing
+            field.returnKeyType = .search
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Search", style: .default) { [weak self, weak alert] _ in
+            let query = alert?.textFields?.first?.text?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !query.isEmpty else {
+                self?.presentMapNotice(
+                    title: "Destination required",
+                    message: "Enter a place or address to search OpenStreetMap."
+                )
+                return
+            }
+            self?.searchOpenStreetMap(for: query)
+        })
+        present(alert, animated: true)
+    }
+
+    private func searchOpenStreetMap(for query: String) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastOpenStreetMapSearchUptime >= 1 else {
+            presentMapNotice(
+                title: "Please wait",
+                message: "OpenStreetMap search is limited to one submitted request per second."
+            )
+            return
+        }
+        lastOpenStreetMapSearchUptime = now
+
+        let configuredEndpoint = UserDefaults.standard.string(forKey: "ROBNominatimEndpoint")
+        let endpoint = configuredEndpoint?.isEmpty == false
+            ? configuredEndpoint!
+            : "https://nominatim.openstreetmap.org/search"
+        guard var components = URLComponents(string: endpoint) else {
+            presentMapNotice(
+                title: "Search unavailable",
+                message: "The configured OpenStreetMap search endpoint is invalid."
+            )
+            return
+        }
+        components.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "format", value: "jsonv2"),
+            URLQueryItem(name: "limit", value: "5")
+        ]
+        guard let url = components.url else {
+            presentMapNotice(
+                title: "Search unavailable",
+                message: "The configured OpenStreetMap search endpoint is invalid."
+            )
+            return
+        }
+
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 12
+        )
+        request.setValue(
+            "RPLidar/1 (destination selection; https://orbitusrobotics.com)",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue(
+            Locale.preferredLanguages.first ?? "en",
+            forHTTPHeaderField: "Accept-Language"
+        )
+        mapStatusLabel.text = "Searching OpenStreetMap…"
+        mapStatusLabel.textColor = .white
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard error == nil,
+                      (200 ... 299).contains(statusCode),
+                      let data,
+                      data.count <= 500_000 else {
+                    self.mapStatusLabel.text = "OpenStreetMap search failed"
+                    self.mapStatusLabel.textColor = .systemRed
+                    self.presentMapNotice(
+                        title: "OpenStreetMap search failed",
+                        message: error?.localizedDescription ??
+                            "The search service did not return a usable response."
+                    )
+                    return
+                }
+
+                let results = (try? JSONDecoder().decode(
+                    [RPLidarNominatimPlace].self,
+                    from: data
+                ))?.filter(\.isValid) ?? []
+                guard !results.isEmpty else {
+                    self.mapStatusLabel.text = "No destinations found"
+                    self.mapStatusLabel.textColor = .systemYellow
+                    self.presentMapNotice(
+                        title: "No destinations found",
+                        message: "Try a more specific OpenStreetMap search."
+                    )
+                    return
+                }
+                self.presentSearchResults(Array(results.prefix(3)))
+            }
+        }.resume()
+    }
+
+    private func presentSearchResults(_ results: [RPLidarNominatimPlace]) {
+        let chooser = UIAlertController(
+            title: "Choose Destination",
+            message: "OpenStreetMap search results.",
+            preferredStyle: .alert
+        )
+        for result in results {
+            let shortName = result.displayName.count > 80
+                ? String(result.displayName.prefix(77)) + "…"
+                : result.displayName
+            chooser.addAction(UIAlertAction(title: shortName, style: .default) { [weak self] _ in
+                self?.selectDestination(
+                    name: result.displayName,
+                    latitude: result.latitude,
+                    longitude: result.longitude
+                )
+            })
+        }
+        chooser.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(chooser, animated: true)
+    }
+
+    private func selectDestination(name: String, latitude: Double, longitude: Double) {
+        let historyStore = RPLidarDestinationHistoryStore()
+        guard let destination = historyStore.record(
+            name: name,
+            latitude: latitude,
+            longitude: longitude
+        ) else {
+            presentMapNotice(title: "Invalid destination", message: "That coordinate is not usable.")
+            return
+        }
+        openStreetMapView.showDestination(
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+            title: destination.displayName
+        )
+        mapStatusLabel.text = "Destination: \(destination.displayName)"
+        mapStatusLabel.textColor = .white
     }
 
     @objc private func chooseMapToLoad() {
@@ -488,6 +487,7 @@ class RPLidarViewController: UIViewController {
                     throw RPLidarControllerError.notConnected
                 }
                 try lidar.resetMap()
+                self.passthroughServer.invalidateSnapshotsAfterMapReset()
                 self.currentMap = nil
                 self.currentCompositeMap = nil
                 self.currentPose = nil
@@ -497,6 +497,8 @@ class RPLidarViewController: UIViewController {
 
                 DispatchQueue.main.async {
                     self.rpLidarImageView.image = nil
+                    self.openStreetMapView.updateOccupancyMapImage(nil)
+                    self.openStreetMapView.updateLaserPoints([], headingRadians: 0)
                     self.rpLidarPolarView.mapFrame = nil
                     self.rpLidarPolarView.robotPose = nil
                     self.rpLidarPolarView.laserPoints = []
@@ -546,11 +548,13 @@ class RPLidarViewController: UIViewController {
                 self.currentLaserPoints = nil
 
                 DispatchQueue.main.async {
-                    self.rpLidarImageView.image = self.mask(
+                    let occupancyImage = self.mask(
                         from: archive.data.bytes,
                         dataWidth: map.dimension.width,
                         dataHeight: map.dimension.height
                     )
+                    self.rpLidarImageView.image = occupancyImage
+                    self.openStreetMapView.updateOccupancyMapImage(occupancyImage)
                     self.rpLidarPolarView.mapFrame = self.mapFrame(from: map)
                     self.rpLidarPolarView.robotPose = RPLidarPose2D(
                         location: CGPoint(x: CGFloat(pose.location.x), y: CGFloat(pose.location.y)),
@@ -615,7 +619,7 @@ class RPLidarViewController: UIViewController {
                         self.scheduleRelocalizationPoll(generation: generation, mapName: mapName)
                     case .finished:
                         self.setMapControlsBusy(false, status: "Localized — \(mapName) locked")
-                        self.mapPulse()
+                        self.passthroughServer.requestMapRefresh()
                     case .idle:
                         self.setMapControlsBusy(false, status: "Loaded \(mapName)")
                     case .stopped:
@@ -652,6 +656,7 @@ class RPLidarViewController: UIViewController {
         mapStatusLabel.textColor = isError ? .systemRed : .white
         loadMapButton.isEnabled = !busy
         saveMapButton.isEnabled = !busy
+        destinationsButton.isEnabled = !busy
         // Reset remains available so a long or failed hardware recovery can
         // always be cancelled by starting a fresh map.
         resetMapButton.isEnabled = !busy || allowReset
@@ -730,17 +735,14 @@ class RPLidarViewController: UIViewController {
         view.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 60),
             stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
             stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 210)
         ])
     }
 
     private func refreshPublisherIdentity() {
-        let deviceID = autoNetClient.publisherDeviceID
-        queue.async { [weak self] in
-            self?.publisherDeviceID = deviceID
-        }
+        passthroughServer.refreshPublisherIdentity()
     }
 
     @objc private func refreshTransportStatus() {
@@ -843,25 +845,6 @@ class RPLidarViewController: UIViewController {
         return "HOME"
     }
     
-    @objc func mapStorage() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.storeMap(with: self.getCurrentLocationName())
-        }
-    }
-    
-    func storeMap(with locationName: String) {
-        if let map = currentMap,
-           let pose = currentPose {
-            do {
-                let encodedData = try ROBOMap(map: map, pose: pose).encoded()
-                RPAppKitController.shared.writeMapToFile(location: locationName, data: encodedData)
-            } catch {
-                print("failed to encode: \(error)")
-            }
-        }
-    }
-    
     func mask(from data: [UInt8], dataWidth: Int32, dataHeight: Int32) -> UIImage? {
         let width  = Int(dataWidth)
         let height = Int(dataHeight)
@@ -905,6 +888,116 @@ class RPLidarViewController: UIViewController {
                 height: CGFloat(map.resolution.y)
             )
         )
+    }
+}
+
+extension RPLidarViewController: RPLidarPassthroughServerDelegate {
+    func passthroughServer(
+        _ server: RPLidarPassthroughServer,
+        didReceive scan: RPLidarScanSnapshot
+    ) {
+        currentLocation = scan.location
+        currentPose = scan.pose
+        currentLaserPoints = scan.laserPoints
+
+        if let location = scan.location {
+            locationLabel.text = String(
+                format: "X: %.3f   Y: %.3f   Z: %.3f",
+                location.x,
+                location.y,
+                location.z
+            )
+        }
+        if let pose = scan.pose {
+            rotationLabel.text = String(
+                format: "Yaw: %.3f   Pitch: %.3f   Roll: %.3f",
+                pose.yaw(),
+                pose.pitch(),
+                pose.roll()
+            )
+            rpLidarPolarView.robotPose = RPLidarPose2D(
+                location: CGPoint(
+                    x: CGFloat(pose.location.x),
+                    y: CGFloat(pose.location.y)
+                ),
+                yaw: CGFloat(pose.yaw())
+            )
+        }
+        rpLidarPolarView.laserPoints = scan.laserPoints
+        rpLidarPolarView.setNeedsDisplay()
+
+        let yaw = scan.pose.map { Double($0.yaw()) } ?? 0
+        let headingRadians = abs(yaw) > Double.pi * 2
+            ? yaw * Double.pi / 180
+            : yaw
+        let points = scan.laserPoints.map {
+            String(format: "%.6f:%.6f", Double($0.distance), Double($0.angle))
+        }
+        openStreetMapView.updateLaserPoints(points, headingRadians: headingRadians)
+    }
+
+    func passthroughServer(
+        _ server: RPLidarPassthroughServer,
+        didReceive snapshot: RPLidarMapSnapshot
+    ) {
+        let map = snapshot.map
+        currentMap = map
+        currentCompositeMap = snapshot.compositeMap
+        let occupancyImage = mask(
+            from: Array(map.data),
+            dataWidth: map.dimension.width,
+            dataHeight: map.dimension.height
+        )
+        rpLidarImageView.image = occupancyImage
+        openStreetMapView.updateOccupancyMapImage(occupancyImage)
+        rpLidarPolarView.mapFrame = mapFrame(from: map)
+        rpLidarPolarView.setNeedsDisplay()
+    }
+}
+
+extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
+    func openStreetMapViewDidRequestSearch(_ mapView: ROBOpenStreetMapView) {
+        presentDestinationSearch()
+    }
+
+    func openStreetMapView(
+        _ mapView: ROBOpenStreetMapView,
+        didSelectDestinationLatitude latitude: Double,
+        longitude: Double
+    ) {
+        selectDestination(
+            name: String(format: "%.6f, %.6f", latitude, longitude),
+            latitude: latitude,
+            longitude: longitude
+        )
+    }
+}
+
+extension RPLidarViewController: CLLocationManagerDelegate {
+    func locationManager(
+        _ manager: CLLocationManager,
+        didUpdateLocations locations: [CLLocation]
+    ) {
+        guard let location = locations.reversed().first(where: {
+            $0.horizontalAccuracy >= 0 && CLLocationCoordinate2DIsValid($0.coordinate)
+        }) else {
+            return
+        }
+        latestDeviceLocation = location
+        openStreetMapView.updateRobot(
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude
+        )
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        startLocationUpdatesIfAuthorized()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        guard (error as? CLError)?.code != .locationUnknown else { return }
+        mapStatusLabel.text = "Location unavailable — tap or search to choose a destination"
+        mapStatusLabel.textColor = .systemYellow
     }
 }
 

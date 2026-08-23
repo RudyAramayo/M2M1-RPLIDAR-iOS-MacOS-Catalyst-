@@ -622,10 +622,54 @@ class RPLidarController: NSObject {
         return currentCompositeMap
     }
 
+    private func exploreMapMatches(
+        _ expectedMap: RPMap,
+        on platform: RPSlamwarePlatformProtocol
+    ) -> Bool {
+        var installedMap: RPMap?
+        do {
+            try performSDKOperation(named: "Verify uploaded saved map") {
+                let knownArea = platform.getKnownArea(
+                    of: RPMapTypeBitmap8Bit,
+                    andMapKind: RPMapKindExploreMap
+                )
+                guard !knownArea.empty() else { return }
+                installedMap = platform.getMapWith(
+                    RPMapTypeBitmap8Bit,
+                    inArea: knownArea,
+                    of: RPMapKindExploreMap
+                )
+            }
+        } catch {
+            print("Unable to verify the rejected saved-map upload: \(error.localizedDescription)")
+            return false
+        }
+
+        guard let installedMap,
+              installedMap.dimension.width == expectedMap.dimension.width,
+              installedMap.dimension.height == expectedMap.dimension.height,
+              installedMap.data == expectedMap.data else {
+            return false
+        }
+
+        let coordinateTolerance = max(
+            abs(expectedMap.resolution.x),
+            abs(expectedMap.resolution.y),
+            0.001
+        ) * 0.1
+        return abs(installedMap.origin.x - expectedMap.origin.x) <= coordinateTolerance
+            && abs(installedMap.origin.y - expectedMap.origin.y) <= coordinateTolerance
+            && abs(installedMap.resolution.x - expectedMap.resolution.x) <= 0.000_001
+            && abs(installedMap.resolution.y - expectedMap.resolution.y) <= 0.000_001
+    }
+
     private func installMapForLocalization(
         _ map: RPMap,
         pose: RPPose,
-        on platform: RPSlamwarePlatformProtocol
+        on platform: RPSlamwarePlatformProtocol,
+        uploadOperationName: String = "Upload saved map",
+        uploadAttempts: Int = 1,
+        settleBeforeUpload: TimeInterval = 0.25
     ) throws {
         try performSDKOperation(named: "Pause map update for load") {
             platform.setMapUpdate(false)
@@ -638,13 +682,46 @@ class RPLidarController: NSObject {
             mapUpdate: false,
             mapLocalization: false
         )
-        try performSDKOperation(named: "Upload saved map") {
-            platform.setMapWith(
-                map,
-                of: RPMapTypeBitmap8Bit,
-                andMapKind: RPMapKindExploreMap
-            )
+
+        // The mode flags can change before the map service has completely
+        // quiesced. Slamtec's map-loading guidance requires an interval before
+        // installing map data; without it this firmware intermittently raises
+        // OperationFail even though both flags already read false.
+        if settleBeforeUpload > 0 {
+            Thread.sleep(forTimeInterval: settleBeforeUpload)
         }
+
+        var lastUploadError: Error?
+        for attempt in 1...max(uploadAttempts, 1) {
+            do {
+                try performSDKOperation(named: uploadOperationName) {
+                    platform.setMapWith(
+                        map,
+                        of: RPMapTypeBitmap8Bit,
+                        andMapKind: RPMapKindExploreMap
+                    )
+                }
+                lastUploadError = nil
+                break
+            } catch {
+                lastUploadError = error
+                if exploreMapMatches(map, on: platform) {
+                    // A completed upload can close or invalidate its response.
+                    // The full bitmap is authoritative, just as the observed
+                    // empty map is authoritative after the reset restart.
+                    print("\(uploadOperationName) returned an error, but the saved map is installed and verified.")
+                    lastUploadError = nil
+                    break
+                }
+                guard attempt < uploadAttempts else { break }
+                print("\(uploadOperationName) attempt \(attempt) was rejected; waiting for the map service and retrying: \(error.localizedDescription)")
+                Thread.sleep(forTimeInterval: 0.5 * Double(attempt))
+            }
+        }
+        if let lastUploadError {
+            throw lastUploadError
+        }
+
         try performSDKOperation(named: "Set saved map pose") {
             platform.setPose(pose)
         }
@@ -775,18 +852,42 @@ class RPLidarController: NSObject {
             cancelActionForMapMutation(deviceAction, named: "current device action")
         }
 
-        try installMapForLocalization(map, pose: pose, on: platform)
+        var activePlatform = platform
+        do {
+            try installMapForLocalization(map, pose: pose, on: activePlatform)
+        } catch {
+            // A failed relocalization can leave the existing map locked against
+            // replacement. Resetting the SLAM services gives map upload the
+            // same known-empty state that made resetMap reliable.
+            print("Initial saved-map upload failed; restarting SLAM services and retrying: \(error.localizedDescription)")
+            activePlatform = try restartSlamwareForMapReset(on: activePlatform)
+            try installMapForLocalization(
+                map,
+                pose: pose,
+                on: activePlatform,
+                uploadOperationName: "Upload saved map after service restart",
+                uploadAttempts: 3,
+                settleBeforeUpload: 0.75
+            )
+        }
 
         do {
-            try startRelocalization(on: platform, in: recoveryArea)
+            try startRelocalization(on: activePlatform, in: recoveryArea)
         } catch {
             // Use the reset-map lesson as a last resort: a soft service restart
             // clears a wedged action state. The restart also clears the map, so
             // reconnect first and then install the saved map again before
             // retrying relocalization.
             print("Relocalization action failed; restarting SLAM services and retrying: \(error.localizedDescription)")
-            let restartedPlatform = try restartSlamwareForMapReset(on: platform)
-            try installMapForLocalization(map, pose: pose, on: restartedPlatform)
+            let restartedPlatform = try restartSlamwareForMapReset(on: activePlatform)
+            try installMapForLocalization(
+                map,
+                pose: pose,
+                on: restartedPlatform,
+                uploadOperationName: "Re-upload saved map after relocalization restart",
+                uploadAttempts: 3,
+                settleBeforeUpload: 0.75
+            )
             try startRelocalization(on: restartedPlatform, in: recoveryArea)
         }
 
