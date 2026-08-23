@@ -11,6 +11,7 @@ import UIKit
 
 protocol ROBOpenStreetMapViewDelegate: AnyObject {
     func openStreetMapViewDidRequestSearch(_ mapView: ROBOpenStreetMapView)
+    func openStreetMapViewDidRequestCurrentLocation(_ mapView: ROBOpenStreetMapView)
 
     func openStreetMapView(
         _ mapView: ROBOpenStreetMapView,
@@ -250,7 +251,11 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     }
 
     @objc private func recenterPressed() {
-        recenter(animated: true)
+        if robotCoordinate == nil {
+            mapDelegate?.openStreetMapViewDidRequestCurrentLocation(self)
+        } else {
+            recenter(animated: true)
+        }
     }
 
     @objc private func searchPressed() {

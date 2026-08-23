@@ -23,6 +23,8 @@ final class AutoNetClientConnection {
     }
 
     private static let authenticationTimeout: TimeInterval = 5
+    private static let networkProbeCapability = Data("ROBNET-PROBE-CAP-V1".utf8)
+    private static let networkProbePrefix = Data("ROBNET-PROBE-V1:".utf8)
 
     let nwConnection: NWConnection
     private let transportMode: AutoNetTransportMode
@@ -144,12 +146,21 @@ final class AutoNetClientConnection {
             }
 
             switch messageType {
-            case .sendData, .setAutomationScript, .lidarTelemetry,
+            case .sendData:
+                guard self.isNetworkProbe(data) else {
+                    // A sensor publisher accepts only the reserved network
+                    // probe on the generic application lane.
+                    self.stopLocked(error: NWError.posix(.EPROTO))
+                    return
+                }
+                self.echoNetworkProbe(data)
+            case .setAutomationScript, .lidarTelemetry,
                  .pairingChallenge, .pairingProof, .pairingAccepted, .pairingRejected, .invalid:
                 // A sensor publisher has no inbound application authority.
                 self.stopLocked(error: NWError.posix(.EPROTO))
                 return
             }
+            self.receiveNextMessage()
         }
     }
 
@@ -197,11 +208,36 @@ final class AutoNetClientConnection {
             authenticationTimeoutWorkItem = nil
             authenticationState = .authenticated
             setReady(true)
+            announceNetworkProbeCapability()
             print("client: Cerebro certificate pin and pairing proof accepted")
             receiveNextMessage()
 
         case .transportConnecting, .authenticated, .stopped:
             stopLocked(error: NWError.posix(.EPROTO))
+        }
+    }
+
+    private func announceNetworkProbeCapability() {
+        sendFrame(
+            type: .sendData,
+            data: Self.networkProbeCapability,
+            identifier: "NetworkProbeCapability"
+        ) { [weak self] error in
+            if let error { self?.stopLocked(error: error) }
+        }
+    }
+
+    private func isNetworkProbe(_ data: Data) -> Bool {
+        let nonceBytes = data.dropFirst(Self.networkProbePrefix.count)
+        guard data.starts(with: Self.networkProbePrefix), nonceBytes.count == 36,
+              let nonceText = String(data: nonceBytes, encoding: .utf8),
+              UUID(uuidString: nonceText) != nil else { return false }
+        return true
+    }
+
+    private func echoNetworkProbe(_ data: Data) {
+        sendFrame(type: .sendData, data: data, identifier: "NetworkProbeEcho") { [weak self] error in
+            if let error { self?.stopLocked(error: error) }
         }
     }
 

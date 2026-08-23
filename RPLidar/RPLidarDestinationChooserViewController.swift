@@ -107,6 +107,7 @@ final class RPLidarDestinationChooserViewController: UIViewController {
     private var locationButton: UIBarButtonItem?
     private var latestDeviceLocation: CLLocation?
     private var shouldCenterOnNextLocation = true
+    private var locationTimeoutWorkItem: DispatchWorkItem?
     private var lastSearchUptime: TimeInterval = 0
 
     private lazy var dateFormatter: DateFormatter = {
@@ -154,6 +155,7 @@ final class RPLidarDestinationChooserViewController: UIViewController {
     }
 
     deinit {
+        locationTimeoutWorkItem?.cancel()
         locationManager.stopUpdatingLocation()
     }
 
@@ -223,8 +225,16 @@ final class RPLidarDestinationChooserViewController: UIViewController {
     }
 
     private func startLocationUpdatesIfAuthorized() {
+        guard CLLocationManager.locationServicesEnabled() else {
+            statusLabel.text = "Location Services are disabled in System Settings."
+            return
+        }
+
         switch locationManager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
+            statusLabel.text = "Finding current location…"
+            scheduleLocationTimeoutIfNeeded()
+            locationManager.requestLocation()
             locationManager.startUpdatingLocation()
         case .notDetermined:
             statusLabel.text = "Allow location access to center the map near ROB."
@@ -234,6 +244,17 @@ final class RPLidarDestinationChooserViewController: UIViewController {
         @unknown default:
             break
         }
+    }
+
+    private func scheduleLocationTimeoutIfNeeded() {
+        guard latestDeviceLocation == nil else { return }
+        locationTimeoutWorkItem?.cancel()
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.latestDeviceLocation == nil else { return }
+            self.statusLabel.text = "No Mac location fix. Check Location Services and keep Wi-Fi enabled."
+        }
+        locationTimeoutWorkItem = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeout)
     }
 
     private func usableDeviceLocation(_ location: CLLocation?) -> CLLocation? {
@@ -574,6 +595,8 @@ extension RPLidarDestinationChooserViewController: CLLocationManagerDelegate {
         guard let location = locations.reversed().compactMap(usableDeviceLocation).first else {
             return
         }
+        locationTimeoutWorkItem?.cancel()
+        locationTimeoutWorkItem = nil
         latestDeviceLocation = location
         locationButton?.isEnabled = true
         if shouldCenterOnNextLocation {
@@ -587,7 +610,11 @@ extension RPLidarDestinationChooserViewController: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         guard (error as? CLError)?.code != .locationUnknown else { return }
-        statusLabel.text = "Current location is unavailable. Search or tap the map to continue."
+        if (error as? CLError)?.code == .denied {
+            statusLabel.text = "Location denied. Allow RPLidar in System Settings, or search manually."
+        } else {
+            statusLabel.text = "Location failed: \(error.localizedDescription)"
+        }
     }
 }
 

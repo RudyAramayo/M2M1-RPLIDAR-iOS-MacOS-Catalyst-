@@ -17,6 +17,7 @@ class RPLidarViewController: UIViewController {
     private let openStreetMapView = ROBOpenStreetMapView(frame: .zero)
     private let locationManager = CLLocationManager()
     private var latestDeviceLocation: CLLocation?
+    private var locationTimeoutWorkItem: DispatchWorkItem?
     private var transportStatusTimer: Timer?
     private var lastOpenStreetMapSearchUptime: TimeInterval = 0
     private var mapZoomScale: CGFloat = 1
@@ -92,6 +93,7 @@ class RPLidarViewController: UIViewController {
 
     deinit {
         transportStatusTimer?.invalidate()
+        locationTimeoutWorkItem?.cancel()
         locationManager.stopUpdatingLocation()
         passthroughServer.detach(self)
     }
@@ -130,17 +132,41 @@ class RPLidarViewController: UIViewController {
     }
 
     private func startLocationUpdatesIfAuthorized() {
+        guard CLLocationManager.locationServicesEnabled() else {
+            mapStatusLabel.text = "Location Services are disabled on this device"
+            mapStatusLabel.textColor = .systemYellow
+            return
+        }
+
         switch locationManager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
+            mapStatusLabel.text = "Finding current location…"
+            mapStatusLabel.textColor = .white
+            scheduleLocationTimeoutIfNeeded()
+            locationManager.requestLocation()
             locationManager.startUpdatingLocation()
         case .notDetermined:
+            mapStatusLabel.text = "RPLidar needs location permission to center the map"
+            mapStatusLabel.textColor = .systemYellow
             locationManager.requestWhenInUseAuthorization()
         case .denied, .restricted:
-            mapStatusLabel.text = "Location unavailable — tap or search to choose a destination"
+            mapStatusLabel.text = "Location denied — allow RPLidar in System Settings"
             mapStatusLabel.textColor = .systemYellow
         @unknown default:
             break
         }
+    }
+
+    private func scheduleLocationTimeoutIfNeeded() {
+        guard latestDeviceLocation == nil else { return }
+        locationTimeoutWorkItem?.cancel()
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.latestDeviceLocation == nil else { return }
+            self.mapStatusLabel.text = "No Mac location fix — check Location Services and Wi-Fi"
+            self.mapStatusLabel.textColor = .systemYellow
+        }
+        locationTimeoutWorkItem = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeout)
     }
     
     @IBAction func clearMapAction() {
@@ -960,6 +986,24 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
         presentDestinationSearch()
     }
 
+    func openStreetMapViewDidRequestCurrentLocation(_ mapView: ROBOpenStreetMapView) {
+        if locationManager.authorizationStatus == .denied {
+            let alert = UIAlertController(
+                title: "Location access is off",
+                message: "Allow RPLidar under Privacy & Security → Location Services, then try again.",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Open Settings", style: .default) { _ in
+                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                UIApplication.shared.open(url)
+            })
+            present(alert, animated: true)
+        } else {
+            startLocationUpdatesIfAuthorized()
+        }
+    }
+
     func openStreetMapView(
         _ mapView: ROBOpenStreetMapView,
         didSelectDestinationLatitude latitude: Double,
@@ -983,11 +1027,18 @@ extension RPLidarViewController: CLLocationManagerDelegate {
         }) else {
             return
         }
+        locationTimeoutWorkItem?.cancel()
+        locationTimeoutWorkItem = nil
         latestDeviceLocation = location
         openStreetMapView.updateRobot(
             latitude: location.coordinate.latitude,
             longitude: location.coordinate.longitude
         )
+        mapStatusLabel.text = String(
+            format: "Location locked (±%.0f m)",
+            location.horizontalAccuracy
+        )
+        mapStatusLabel.textColor = .white
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -996,7 +1047,11 @@ extension RPLidarViewController: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         guard (error as? CLError)?.code != .locationUnknown else { return }
-        mapStatusLabel.text = "Location unavailable — tap or search to choose a destination"
+        if (error as? CLError)?.code == .denied {
+            mapStatusLabel.text = "Location denied — allow RPLidar in System Settings"
+        } else {
+            mapStatusLabel.text = "Location failed: \(error.localizedDescription)"
+        }
         mapStatusLabel.textColor = .systemYellow
     }
 }
