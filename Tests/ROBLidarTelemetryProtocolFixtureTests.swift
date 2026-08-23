@@ -151,12 +151,41 @@ struct ROBLidarTelemetryProtocolFixtureTests {
         }
         let decodedScan = try ROBLidarTelemetryMessage.decode(scan.encoded())
         guard decodedScan.schemaVersion == 1,
+              decodedScan.networkProbeVersion == 1,
               decodedScan.kind == .scan,
               decodedScan.deviceID == deviceID,
               decodedScan.sequence == 41,
               decodedScan.scanPayload == scan.scanPayload,
               decodedScan.mapData == nil else {
             throw FixtureFailure.failed("Scan telemetry did not round-trip")
+        }
+        var legacyObject = try JSONSerialization.jsonObject(with: scan.encoded()) as! [String: Any]
+        legacyObject.removeValue(forKey: "networkProbeVersion")
+        let legacyScan = try ROBLidarTelemetryMessage.decode(
+            JSONSerialization.data(withJSONObject: legacyObject)
+        )
+        guard legacyScan.networkProbeVersion == nil,
+              legacyScan.validationError(
+                authenticatedDeviceID: deviceID,
+                lastAcceptedSequence: 40,
+                nowMilliseconds: now
+              ) == nil else {
+            throw FixtureFailure.failed("Pre-probe telemetry lost backward compatibility")
+        }
+        let unsupportedProbe = ROBLidarTelemetryMessage(
+            kind: .scan,
+            deviceID: deviceID,
+            sequence: 42,
+            sentAtMilliseconds: now,
+            scanPayload: "0:0:0\n0:0:0\n0.25:0.1\n",
+            networkProbeVersion: 2
+        )
+        guard unsupportedProbe.validationError(
+            authenticatedDeviceID: deviceID,
+            lastAcceptedSequence: 41,
+            nowMilliseconds: now
+        ) == "unsupported network probe version" else {
+            throw FixtureFailure.failed("Unsupported network probe capability was accepted")
         }
         guard scan.validationError(
                 authenticatedDeviceID: UUID(),

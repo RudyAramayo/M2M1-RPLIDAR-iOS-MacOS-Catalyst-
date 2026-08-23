@@ -580,8 +580,12 @@ class RPLidarViewController: UIViewController {
                         dataHeight: map.dimension.height
                     )
                     self.rpLidarImageView.image = occupancyImage
-                    self.openStreetMapView.updateOccupancyMapImage(occupancyImage)
-                    self.rpLidarPolarView.mapFrame = self.mapFrame(from: map)
+                    let mapFrame = self.mapFrame(from: map)
+                    self.openStreetMapView.updateOccupancyMapImage(
+                        occupancyImage,
+                        worldSizeMeters: mapFrame?.worldSize
+                    )
+                    self.rpLidarPolarView.mapFrame = mapFrame
                     self.rpLidarPolarView.robotPose = RPLidarPose2D(
                         location: CGPoint(x: CGFloat(pose.location.x), y: CGFloat(pose.location.y)),
                         yaw: CGFloat(pose.yaw())
@@ -975,8 +979,12 @@ extension RPLidarViewController: RPLidarPassthroughServerDelegate {
             dataHeight: map.dimension.height
         )
         rpLidarImageView.image = occupancyImage
-        openStreetMapView.updateOccupancyMapImage(occupancyImage)
-        rpLidarPolarView.mapFrame = mapFrame(from: map)
+        let mapFrame = mapFrame(from: map)
+        openStreetMapView.updateOccupancyMapImage(
+            occupancyImage,
+            worldSizeMeters: mapFrame?.worldSize
+        )
+        rpLidarPolarView.mapFrame = mapFrame
         rpLidarPolarView.setNeedsDisplay()
     }
 }
@@ -1004,6 +1012,23 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
         }
     }
 
+    func openStreetMapViewDidRequestOverlayCalibration(_ mapView: ROBOpenStreetMapView) {
+        let editor = RPLidarOverlayCalibrationViewController(
+            calibration: mapView.overlayCalibration
+        )
+        editor.onCalibrationChanged = { [weak self] calibration in
+            self?.openStreetMapView.setOverlayCalibration(calibration)
+        }
+        let navigationController = UINavigationController(rootViewController: editor)
+        navigationController.modalPresentationStyle = .pageSheet
+        navigationController.preferredContentSize = CGSize(width: 480, height: 390)
+        if let sheet = navigationController.sheetPresentationController {
+            sheet.detents = [.medium()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(navigationController, animated: true)
+    }
+
     func openStreetMapView(
         _ mapView: ROBOpenStreetMapView,
         didSelectDestinationLatitude latitude: Double,
@@ -1014,6 +1039,132 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
             latitude: latitude,
             longitude: longitude
         )
+    }
+}
+
+private final class RPLidarOverlayCalibrationViewController: UIViewController {
+    var onCalibrationChanged: ((ROBLidarOverlayCalibration) -> Void)?
+
+    private let scaleSlider = UISlider(frame: .zero)
+    private let rotationSlider = UISlider(frame: .zero)
+    private let scaleValueLabel = UILabel(frame: .zero)
+    private let rotationValueLabel = UILabel(frame: .zero)
+    private var calibration: ROBLidarOverlayCalibration
+
+    init(calibration: ROBLidarOverlayCalibration) {
+        self.calibration = calibration
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Lidar Overlay"
+        view.backgroundColor = .systemBackground
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .done,
+            target: self,
+            action: #selector(close)
+        )
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: "Reset",
+            style: .plain,
+            target: self,
+            action: #selector(resetCalibration)
+        )
+
+        scaleSlider.minimumValue = 0.50
+        scaleSlider.maximumValue = 1.50
+        scaleSlider.value = Float(calibration.scale)
+        scaleSlider.isContinuous = true
+        scaleSlider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
+
+        rotationSlider.minimumValue = -180
+        rotationSlider.maximumValue = 180
+        rotationSlider.value = Float(calibration.northRotationDegrees)
+        rotationSlider.isContinuous = true
+        rotationSlider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
+
+        [scaleValueLabel, rotationValueLabel].forEach {
+            $0.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+            $0.textAlignment = .right
+            $0.setContentHuggingPriority(.required, for: .horizontal)
+        }
+
+        let explanation = UILabel(frame: .zero)
+        explanation.text = "The base bitmap size is calculated from Slamware map dimensions × cell resolution. Use Scale only as a correction. North rotation is clockwise."
+        explanation.font = .preferredFont(forTextStyle: .footnote)
+        explanation.textColor = .secondaryLabel
+        explanation.numberOfLines = 0
+
+        let scaleRow = calibrationRow(
+            title: "Overlay scale",
+            slider: scaleSlider,
+            valueLabel: scaleValueLabel
+        )
+        let rotationRow = calibrationRow(
+            title: "North rotation",
+            slider: rotationSlider,
+            valueLabel: rotationValueLabel
+        )
+        let stack = UIStackView(arrangedSubviews: [explanation, scaleRow, rotationRow])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 24
+        view.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24)
+        ])
+        refreshValueLabels()
+    }
+
+    private func calibrationRow(
+        title: String,
+        slider: UISlider,
+        valueLabel: UILabel
+    ) -> UIStackView {
+        let titleLabel = UILabel(frame: .zero)
+        titleLabel.text = title
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        let header = UIStackView(arrangedSubviews: [titleLabel, valueLabel])
+        header.axis = .horizontal
+        header.spacing = 12
+        let row = UIStackView(arrangedSubviews: [header, slider])
+        row.axis = .vertical
+        row.spacing = 8
+        return row
+    }
+
+    @objc private func sliderChanged() {
+        calibration = ROBLidarOverlayCalibration(
+            scale: Double((scaleSlider.value * 100).rounded() / 100),
+            northRotationDegrees: Double(rotationSlider.value.rounded())
+        )
+        refreshValueLabels()
+        onCalibrationChanged?(calibration)
+    }
+
+    private func refreshValueLabels() {
+        scaleValueLabel.text = String(format: "%d%%", Int((calibration.scale * 100).rounded()))
+        rotationValueLabel.text = String(format: "%+.0f°", calibration.northRotationDegrees)
+    }
+
+    @objc private func resetCalibration() {
+        calibration = .default
+        scaleSlider.setValue(Float(calibration.scale), animated: true)
+        rotationSlider.setValue(Float(calibration.northRotationDegrees), animated: true)
+        refreshValueLabels()
+        onCalibrationChanged?(calibration)
+    }
+
+    @objc private func close() {
+        dismiss(animated: true)
     }
 }
 

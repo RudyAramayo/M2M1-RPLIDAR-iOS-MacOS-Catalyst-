@@ -12,12 +12,64 @@ import UIKit
 protocol ROBOpenStreetMapViewDelegate: AnyObject {
     func openStreetMapViewDidRequestSearch(_ mapView: ROBOpenStreetMapView)
     func openStreetMapViewDidRequestCurrentLocation(_ mapView: ROBOpenStreetMapView)
+    func openStreetMapViewDidRequestOverlayCalibration(_ mapView: ROBOpenStreetMapView)
 
     func openStreetMapView(
         _ mapView: ROBOpenStreetMapView,
         didSelectDestinationLatitude latitude: Double,
         longitude: Double
     )
+}
+
+struct ROBLidarOverlayCalibration: Equatable {
+    static let defaultScale = 0.90
+
+    let scale: Double
+    let northRotationDegrees: Double
+
+    init(scale: Double, northRotationDegrees: Double) {
+        self.scale = min(max(scale.isFinite ? scale : Self.defaultScale, 0.50), 1.50)
+        let finiteRotation = northRotationDegrees.isFinite ? northRotationDegrees : 0
+        var normalizedRotation = finiteRotation.truncatingRemainder(dividingBy: 360)
+        if normalizedRotation >= 180 { normalizedRotation -= 360 }
+        if normalizedRotation < -180 { normalizedRotation += 360 }
+        self.northRotationDegrees = normalizedRotation
+    }
+
+    static let `default` = ROBLidarOverlayCalibration(
+        scale: defaultScale,
+        northRotationDegrees: 0
+    )
+
+    var northRotationRadians: Double {
+        northRotationDegrees * .pi / 180
+    }
+}
+
+private enum ROBLidarOverlayCalibrationStore {
+    private static let scaleKey = "RPLidar.OpenStreetMap.OverlayScale.v1"
+    private static let northRotationKey = "RPLidar.OpenStreetMap.NorthRotationDegrees.v1"
+
+    static func load(defaults: UserDefaults = .standard) -> ROBLidarOverlayCalibration {
+        let scale = defaults.object(forKey: scaleKey) == nil
+            ? ROBLidarOverlayCalibration.default.scale
+            : defaults.double(forKey: scaleKey)
+        let northRotation = defaults.object(forKey: northRotationKey) == nil
+            ? ROBLidarOverlayCalibration.default.northRotationDegrees
+            : defaults.double(forKey: northRotationKey)
+        return ROBLidarOverlayCalibration(
+            scale: scale,
+            northRotationDegrees: northRotation
+        )
+    }
+
+    static func save(
+        _ calibration: ROBLidarOverlayCalibration,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(calibration.scale, forKey: scaleKey)
+        defaults.set(calibration.northRotationDegrees, forKey: northRotationKey)
+    }
 }
 
 final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizerDelegate {
@@ -27,6 +79,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     private let lidarView = ROBLidarGeographicOverlayView(frame: .zero)
     private let recenterButton = UIButton(type: .system)
     private let searchButton = UIButton(type: .system)
+    private let calibrationButton = UIButton(type: .system)
     private let instructionLabel = UILabel(frame: .zero)
     private let attributionLabel = UILabel(frame: .zero)
     private let scanStatusLabel = UILabel(frame: .zero)
@@ -36,6 +89,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     private var hasCenteredOnRobot = false
     private var lidarReturnCount = 0
     private var hasOccupancyMap = false
+    private(set) var overlayCalibration = ROBLidarOverlayCalibrationStore.load()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -87,6 +141,13 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
             symbol: "location.fill",
             action: #selector(recenterPressed)
         )
+        configureMapButton(
+            calibrationButton,
+            title: "",
+            symbol: "slider.horizontal.3",
+            action: #selector(calibrationPressed)
+        )
+        calibrationButton.accessibilityLabel = "Lidar overlay calibration"
 
         scanStatusLabel.translatesAutoresizingMaskIntoConstraints = false
         scanStatusLabel.text = "LIDAR / AWAITING LOCAL FRAME"
@@ -144,6 +205,14 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
             recenterButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -12),
             recenterButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 10),
             recenterButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 42),
+
+            calibrationButton.trailingAnchor.constraint(
+                equalTo: recenterButton.leadingAnchor,
+                constant: -8
+            ),
+            calibrationButton.topAnchor.constraint(equalTo: recenterButton.topAnchor),
+            calibrationButton.widthAnchor.constraint(equalToConstant: 44),
+            calibrationButton.heightAnchor.constraint(equalTo: recenterButton.heightAnchor),
 
             scanStatusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             scanStatusLabel.topAnchor.constraint(equalTo: searchButton.bottomAnchor, constant: 6),
@@ -211,16 +280,31 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         lidarView.update(points: points, headingRadians: headingRadians)
     }
 
-    func updateOccupancyMapImage(_ image: UIImage?) {
+    func updateOccupancyMapImage(_ image: UIImage?, worldSizeMeters: CGSize? = nil) {
         hasOccupancyMap = image != nil
         refreshScanStatus()
         lidarView.occupancyMapImage = image
+        lidarView.occupancyWorldSizeMeters = worldSizeMeters
+        lidarView.setNeedsDisplay()
+    }
+
+    func setOverlayCalibration(_ calibration: ROBLidarOverlayCalibration) {
+        overlayCalibration = calibration
+        ROBLidarOverlayCalibrationStore.save(calibration)
+        lidarView.calibration = calibration
+        refreshScanStatus()
         lidarView.setNeedsDisplay()
     }
 
     private func refreshScanStatus() {
         let gridState = hasOccupancyMap ? "GRID LIVE" : "NO GRID"
-        scanStatusLabel.text = String(format: "LIDAR / %04d RETURNS / %@", lidarReturnCount, gridState)
+        scanStatusLabel.text = String(
+            format: "LIDAR / %04d / %@ / %d%% / N%+.0f°",
+            lidarReturnCount,
+            gridState,
+            Int((overlayCalibration.scale * 100).rounded()),
+            overlayCalibration.northRotationDegrees
+        )
     }
 
     func showDestination(latitude: Double, longitude: Double, title: String) {
@@ -260,6 +344,10 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
 
     @objc private func searchPressed() {
         mapDelegate?.openStreetMapViewDidRequestSearch(self)
+    }
+
+    @objc private func calibrationPressed() {
+        mapDelegate?.openStreetMapViewDidRequestOverlayCalibration(self)
     }
 
     @objc private func mapTapped(_ recognizer: UITapGestureRecognizer) {
@@ -325,6 +413,8 @@ private final class ROBLidarGeographicOverlayView: UIView {
     weak var mapView: MKMapView?
     var robotCoordinate: CLLocationCoordinate2D?
     var occupancyMapImage: UIImage?
+    var occupancyWorldSizeMeters: CGSize?
+    var calibration = ROBLidarOverlayCalibrationStore.load()
     private var samples: [Sample] = []
     private var headingRadians: Double = 0
 
@@ -373,9 +463,10 @@ private final class ROBLidarGeographicOverlayView: UIView {
         context.setFillColor(scanColor.cgColor)
         context.setShadow(offset: .zero, blur: 2.5, color: scanColor.cgColor)
         for sample in samples {
-            let theta = sample.angleRadians + headingRadians
-            let north = cos(theta) * sample.distanceMeters
-            let east = sin(theta) * sample.distanceMeters
+            let theta = sample.angleRadians + headingRadians + calibration.northRotationRadians
+            let calibratedDistance = sample.distanceMeters * calibration.scale
+            let north = cos(theta) * calibratedDistance
+            let east = sin(theta) * calibratedDistance
             let coordinate = offsetCoordinate(
                 from: robotCoordinate,
                 eastMeters: east,
@@ -398,8 +489,24 @@ private final class ROBLidarGeographicOverlayView: UIView {
         robotCoordinate: CLLocationCoordinate2D
     ) {
         guard let occupancyMapImage else { return }
-        let eastEdge = offsetCoordinate(from: robotCoordinate, eastMeters: 10, northMeters: 0)
-        let northEdge = offsetCoordinate(from: robotCoordinate, eastMeters: 0, northMeters: 10)
+        let fallbackSize = CGSize(width: 20, height: 20)
+        let worldSize = occupancyWorldSizeMeters ?? fallbackSize
+        let halfWidthMeters = worldSize.width * calibration.scale / 2
+        let halfHeightMeters = worldSize.height * calibration.scale / 2
+        guard halfWidthMeters.isFinite,
+              halfHeightMeters.isFinite,
+              halfWidthMeters > 0,
+              halfHeightMeters > 0 else { return }
+        let eastEdge = offsetCoordinate(
+            from: robotCoordinate,
+            eastMeters: halfWidthMeters,
+            northMeters: 0
+        )
+        let northEdge = offsetCoordinate(
+            from: robotCoordinate,
+            eastMeters: 0,
+            northMeters: halfHeightMeters
+        )
         let eastPoint = mapView.convert(eastEdge, toPointTo: self)
         let northPoint = mapView.convert(northEdge, toPointTo: self)
         let halfWidth = abs(eastPoint.x - center.x)
@@ -408,7 +515,7 @@ private final class ROBLidarGeographicOverlayView: UIView {
 
         context.saveGState()
         context.translateBy(x: center.x, y: center.y)
-        context.rotate(by: CGFloat(headingRadians))
+        context.rotate(by: CGFloat(headingRadians + calibration.northRotationRadians))
         context.setAlpha(0.38)
         occupancyMapImage.draw(
             in: CGRect(x: -halfWidth, y: -halfHeight, width: halfWidth * 2, height: halfHeight * 2),

@@ -23,7 +23,6 @@ final class AutoNetClientConnection {
     }
 
     private static let authenticationTimeout: TimeInterval = 5
-    private static let networkProbeCapability = Data("ROBNET-PROBE-CAP-V1".utf8)
     private static let networkProbePrefix = Data("ROBNET-PROBE-V1:".utf8)
 
     let nwConnection: NWConnection
@@ -43,6 +42,8 @@ final class AutoNetClientConnection {
     private var nextOutgoingSequence: UInt64 = 1
     private var authenticationState: AuthenticationState = .transportConnecting
     private var authenticationTimeoutWorkItem: DispatchWorkItem?
+    private var lidarTelemetrySendInFlight = false
+    private var pendingLatestLidarTelemetry: Data?
 
     init(
         nwConnection: NWConnection,
@@ -208,22 +209,11 @@ final class AutoNetClientConnection {
             authenticationTimeoutWorkItem = nil
             authenticationState = .authenticated
             setReady(true)
-            announceNetworkProbeCapability()
             print("client: Cerebro certificate pin and pairing proof accepted")
             receiveNextMessage()
 
         case .transportConnecting, .authenticated, .stopped:
             stopLocked(error: NWError.posix(.EPROTO))
-        }
-    }
-
-    private func announceNetworkProbeCapability() {
-        sendFrame(
-            type: .sendData,
-            data: Self.networkProbeCapability,
-            identifier: "NetworkProbeCapability"
-        ) { [weak self] error in
-            if let error { self?.stopLocked(error: error) }
         }
     }
 
@@ -253,22 +243,44 @@ final class AutoNetClientConnection {
                 )
                 return
             }
-            guard data.count <= 4 * 1024 * 1024 else {
-                print("client: refusing oversized message of \(data.count) bytes")
+            guard data.count <= ROBLidarScanFrame.maximumEncodedBytes else {
+                print("client: refusing oversized Lidar scan of \(data.count) bytes")
                 return
             }
-            let sequence = self.nextOutgoingSequence
-            guard sequence > 0 else {
-                self.stopLocked(error: NWError.posix(.EOVERFLOW))
-                return
-            }
-            self.nextOutgoingSequence &+= 1
-            self.sendFrame(
-                type: .lidarTelemetry,
-                data: data,
-                identifier: "LidarTelemetry-\(sequence)"
-            ) { [weak self] error in
-                if let error { self?.stopLocked(error: error) }
+            // At most one scan waits behind Network.framework. A slow or
+            // congested link replaces the pending sample instead of building
+            // an increasingly stale, bandwidth-heavy ordered-stream backlog.
+            self.pendingLatestLidarTelemetry = data
+            self.flushLatestLidarTelemetryLocked()
+        }
+    }
+
+    private func flushLatestLidarTelemetryLocked() {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard isReady, !isStopped, !lidarTelemetrySendInFlight,
+              let data = pendingLatestLidarTelemetry else { return }
+        let sequence = nextOutgoingSequence
+        guard sequence > 0 else {
+            stopLocked(error: NWError.posix(.EOVERFLOW))
+            return
+        }
+        nextOutgoingSequence &+= 1
+        pendingLatestLidarTelemetry = nil
+        lidarTelemetrySendInFlight = true
+        sendFrame(
+            type: .lidarTelemetry,
+            data: data,
+            identifier: "LidarTelemetry-\(sequence)"
+        ) { [weak self] error in
+            guard let self else { return }
+            self.queue.async {
+                guard !self.isStopped else { return }
+                self.lidarTelemetrySendInFlight = false
+                if let error {
+                    self.stopLocked(error: error)
+                } else {
+                    self.flushLatestLidarTelemetryLocked()
+                }
             }
         }
     }
@@ -298,6 +310,8 @@ final class AutoNetClientConnection {
         authenticationState = .stopped
         authenticationTimeoutWorkItem?.cancel()
         authenticationTimeoutWorkItem = nil
+        pendingLatestLidarTelemetry = nil
+        lidarTelemetrySendInFlight = false
         isReceiving = false
         setReady(false)
         nwConnection.stateUpdateHandler = nil

@@ -242,20 +242,10 @@ final class RPLidarPassthroughServer {
             }
             latestPose = pose
 
-            var payload = ""
-            if let location {
-                payload += "\(location.x):\(location.y):\(location.z)\n"
-            } else {
-                payload += "0:0:0\n"
-            }
-            if let pose {
-                payload += "\(pose.yaw()):\(pose.pitch()):\(pose.roll())\n"
-            } else {
-                payload += "0:0:0\n"
-            }
-
             var renderedPoints: [RPLidarScanPoint] = []
+            var wirePoints: [ROBLidarWirePoint] = []
             renderedPoints.reserveCapacity(scan.laserPoints.count)
+            wirePoints.reserveCapacity(scan.laserPoints.count)
             for laserPoint in scan.laserPoints where laserPoint.valid {
                 renderedPoints.append(
                     RPLidarScanPoint(
@@ -263,7 +253,12 @@ final class RPLidarPassthroughServer {
                         angle: CGFloat(laserPoint.angle)
                     )
                 )
-                payload += "\(laserPoint.distance):\(laserPoint.angle)\n"
+                wirePoints.append(
+                    ROBLidarWirePoint(
+                        distanceMeters: Float(laserPoint.distance),
+                        angleRadians: Float(laserPoint.angle)
+                    )
+                )
             }
 
             let snapshot = RPLidarScanSnapshot(
@@ -272,7 +267,7 @@ final class RPLidarPassthroughServer {
                 laserPoints: renderedPoints
             )
             latestScan = snapshot
-            publishScanLocked(payload)
+            publishScanLocked(location: location, pose: pose, points: wirePoints)
             deliver(scan: snapshot)
         } catch {
             print("RPLidar scan passthrough failed: \(error.localizedDescription)")
@@ -294,7 +289,6 @@ final class RPLidarPassthroughServer {
             guard let map = try lidar.getCurrentMap() else { return }
             let snapshot = RPLidarMapSnapshot(map: map, compositeMap: compositeMap ?? nil)
             latestMap = snapshot
-            publishMapLocked(map)
             deliver(map: snapshot)
         } catch {
             print("RPLidar map passthrough failed: \(error.localizedDescription)")
@@ -303,41 +297,31 @@ final class RPLidarPassthroughServer {
         }
     }
 
-    private func publishScanLocked(_ payload: String) {
+    private func publishScanLocked(
+        location: RPLocation?,
+        pose: RPPose?,
+        points: [ROBLidarWirePoint]
+    ) {
         guard let deviceID = publisherDeviceID,
               let sequence = telemetrySequenceStore.next(deviceID: deviceID) else {
             return
         }
-        let message = ROBLidarTelemetryMessage.scan(
+        let frame = ROBLidarScanFrame(
             deviceID: deviceID,
             sequence: sequence,
             sentAtMilliseconds: Self.currentMilliseconds(),
-            payload: payload
+            x: Float(location?.x ?? 0),
+            y: Float(location?.y ?? 0),
+            z: Float(location?.z ?? 0),
+            yaw: Float(pose?.yaw() ?? 0),
+            pitch: Float(pose?.pitch() ?? 0),
+            roll: Float(pose?.roll() ?? 0),
+            points: points
         )
         do {
-            autoNetClient.publishLidarTelemetry(try message.encoded())
+            autoNetClient.publishLidarTelemetry(try frame.encoded())
         } catch {
             print("RPLidar scan was not published: \(error.localizedDescription)")
-        }
-    }
-
-    private func publishMapLocked(_ map: RPMap) {
-        guard let deviceID = publisherDeviceID,
-              let sequence = telemetrySequenceStore.next(deviceID: deviceID) else {
-            return
-        }
-        let message = ROBLidarTelemetryMessage.map(
-            deviceID: deviceID,
-            sequence: sequence,
-            sentAtMilliseconds: Self.currentMilliseconds(),
-            data: map.data,
-            width: Int(map.dimension.width),
-            height: Int(map.dimension.height)
-        )
-        do {
-            autoNetClient.publishLidarTelemetry(try message.encoded())
-        } catch {
-            print("RPLidar map was not published: \(error.localizedDescription)")
         }
     }
 
