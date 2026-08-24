@@ -1066,7 +1066,8 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
     func openStreetMapViewDidRequestOverlayCalibration(_ mapView: ROBOpenStreetMapView) {
         let editor = RPLidarOverlayCalibrationViewController(
             calibration: mapView.overlayCalibration,
-            baseMapStyle: mapView.baseMapStyle
+            baseMapStyle: mapView.baseMapStyle,
+            locationAdjustment: mapView.locationAdjustmentDescription
         )
         editor.onCalibrationChanged = { [weak self] calibration in
             self?.openStreetMapView.setOverlayCalibration(calibration)
@@ -1074,11 +1075,19 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
         editor.onBaseMapStyleChanged = { [weak self] style in
             self?.openStreetMapView.setBaseMapStyle(style)
         }
+        editor.onAlignRobotToMapCenter = { [weak self] in
+            self?.openStreetMapView.alignRobotToMapCenter()
+            return self?.openStreetMapView.locationAdjustmentDescription ?? "Adjusted"
+        }
+        editor.onResetRobotLocation = { [weak self] in
+            self?.openStreetMapView.resetPerceivedRobotLocation()
+            return self?.openStreetMapView.locationAdjustmentDescription ?? "Device GPS"
+        }
         let navigationController = UINavigationController(rootViewController: editor)
         navigationController.modalPresentationStyle = .pageSheet
-        navigationController.preferredContentSize = CGSize(width: 480, height: 390)
+        navigationController.preferredContentSize = CGSize(width: 480, height: 500)
         if let sheet = navigationController.sheetPresentationController {
-            sheet.detents = [.medium()]
+            sheet.detents = [.medium(), .large()]
             sheet.prefersGrabberVisible = true
         }
         present(navigationController, animated: true)
@@ -1100,6 +1109,8 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
 private final class RPLidarOverlayCalibrationViewController: UIViewController {
     var onCalibrationChanged: ((ROBLidarOverlayCalibration) -> Void)?
     var onBaseMapStyleChanged: ((ROBLidarBaseMapStyle) -> Void)?
+    var onAlignRobotToMapCenter: (() -> String)?
+    var onResetRobotLocation: (() -> String)?
 
     private let mapStyleControl = UISegmentedControl(
         items: ROBLidarBaseMapStyle.allCases.map(\.title)
@@ -1108,15 +1119,19 @@ private final class RPLidarOverlayCalibrationViewController: UIViewController {
     private let rotationSlider = UISlider(frame: .zero)
     private let scaleValueLabel = UILabel(frame: .zero)
     private let rotationValueLabel = UILabel(frame: .zero)
+    private let locationValueLabel = UILabel(frame: .zero)
     private var calibration: ROBLidarOverlayCalibration
     private var baseMapStyle: ROBLidarBaseMapStyle
+    private var locationAdjustment: String
 
     init(
         calibration: ROBLidarOverlayCalibration,
-        baseMapStyle: ROBLidarBaseMapStyle
+        baseMapStyle: ROBLidarBaseMapStyle,
+        locationAdjustment: String
     ) {
         self.calibration = calibration
         self.baseMapStyle = baseMapStyle
+        self.locationAdjustment = locationAdjustment
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -1186,7 +1201,39 @@ private final class RPLidarOverlayCalibrationViewController: UIViewController {
             slider: rotationSlider,
             valueLabel: rotationValueLabel
         )
-        let stack = UIStackView(arrangedSubviews: [mapStyleRow, explanation, scaleRow, rotationRow])
+        locationValueLabel.text = locationAdjustment
+        locationValueLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        locationValueLabel.textColor = .secondaryLabel
+        locationValueLabel.numberOfLines = 0
+
+        let alignButton = UIButton(type: .system)
+        alignButton.configuration = .tinted()
+        alignButton.configuration?.title = "Set ROB to Map Center"
+        alignButton.configuration?.image = UIImage(systemName: "scope")
+        alignButton.configuration?.imagePadding = 7
+        alignButton.addTarget(self, action: #selector(alignRobotToMapCenter), for: .touchUpInside)
+
+        let resetLocationButton = UIButton(type: .system)
+        resetLocationButton.configuration = .plain()
+        resetLocationButton.configuration?.title = "Use Device GPS"
+        resetLocationButton.addTarget(self, action: #selector(resetRobotLocation), for: .touchUpInside)
+
+        let locationLabel = UILabel(frame: .zero)
+        locationLabel.text = "Perceived ROB location"
+        locationLabel.font = .preferredFont(forTextStyle: .headline)
+        let locationButtons = UIStackView(arrangedSubviews: [alignButton, resetLocationButton])
+        locationButtons.axis = .horizontal
+        locationButtons.spacing = 10
+        locationButtons.distribution = .fillEqually
+        let locationRow = UIStackView(
+            arrangedSubviews: [locationLabel, locationValueLabel, locationButtons]
+        )
+        locationRow.axis = .vertical
+        locationRow.spacing = 8
+
+        let stack = UIStackView(
+            arrangedSubviews: [mapStyleRow, explanation, locationRow, scaleRow, rotationRow]
+        )
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 24
@@ -1244,6 +1291,16 @@ private final class RPLidarOverlayCalibrationViewController: UIViewController {
         rotationSlider.setValue(Float(calibration.northRotationDegrees), animated: true)
         refreshValueLabels()
         onCalibrationChanged?(calibration)
+    }
+
+    @objc private func alignRobotToMapCenter() {
+        locationAdjustment = onAlignRobotToMapCenter?() ?? "Adjusted"
+        locationValueLabel.text = locationAdjustment
+    }
+
+    @objc private func resetRobotLocation() {
+        locationAdjustment = onResetRobotLocation?() ?? "Device GPS"
+        locationValueLabel.text = locationAdjustment
     }
 
     @objc private func close() {

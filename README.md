@@ -114,6 +114,12 @@ the history can be cleared. These are local diagnostic selections. RPLidar
 retains its restricted `lidarPublisher` credential and does not send
 operator/navigation commands.
 
+Long-press ROB's actual position on the map to calibrate the perceived lidar
+location. RPLidar stores the resulting east/north correction and reapplies it
+to new device-location updates. The lidar settings sheet also provides **Set
+ROB to Map Center** and **Use Device GPS** controls for precise alignment and
+reset.
+
 The bundled SlamwareSDK framework contains iPhoneOS armv7/arm64 slices and
 imports UIKit. The project builds for iOS and can run on supported Apple-silicon
 Macs as an iPad/iPhone app, but it is not a native macOS or true Mac Catalyst

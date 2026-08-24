@@ -135,6 +135,44 @@ private enum ROBLidarOverlayCalibrationStore {
     }
 }
 
+private struct ROBLidarLocationOffset: Equatable {
+    private static let maximumAbsoluteMeters = 5_000.0
+
+    let eastMeters: Double
+    let northMeters: Double
+
+    init(eastMeters: Double, northMeters: Double) {
+        self.eastMeters = min(max(eastMeters.isFinite ? eastMeters : 0, -Self.maximumAbsoluteMeters), Self.maximumAbsoluteMeters)
+        self.northMeters = min(max(northMeters.isFinite ? northMeters : 0, -Self.maximumAbsoluteMeters), Self.maximumAbsoluteMeters)
+    }
+
+    static let zero = ROBLidarLocationOffset(eastMeters: 0, northMeters: 0)
+
+    var isAdjusted: Bool {
+        abs(eastMeters) >= 0.05 || abs(northMeters) >= 0.05
+    }
+}
+
+private enum ROBLidarLocationOffsetStore {
+    private static let eastKey = "RPLidar.OpenStreetMap.LocationOffsetEastMeters.v1"
+    private static let northKey = "RPLidar.OpenStreetMap.LocationOffsetNorthMeters.v1"
+
+    static func load(defaults: UserDefaults = .standard) -> ROBLidarLocationOffset {
+        ROBLidarLocationOffset(
+            eastMeters: defaults.double(forKey: eastKey),
+            northMeters: defaults.double(forKey: northKey)
+        )
+    }
+
+    static func save(
+        _ offset: ROBLidarLocationOffset,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(offset.eastMeters, forKey: eastKey)
+        defaults.set(offset.northMeters, forKey: northKey)
+    }
+}
+
 final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizerDelegate {
     private static let closestCameraDistance: CLLocationDistance = 1
 
@@ -150,13 +188,16 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     private let scanStatusLabel = UILabel(frame: .zero)
     private let robotAnnotation = MKPointAnnotation()
     private let destinationAnnotation = MKPointAnnotation()
+    private var rawRobotCoordinate: CLLocationCoordinate2D?
     private var robotCoordinate: CLLocationCoordinate2D?
+    private var pendingPerceivedRobotCoordinate: CLLocationCoordinate2D?
     private var hasCenteredOnRobot = false
     private var lidarReturnCount = 0
     private var hasOccupancyMap = false
     private(set) var overlayCalibration = ROBLidarOverlayCalibrationStore.load()
     private(set) var baseMapStyle = ROBLidarBaseMapStyleStore.load()
     private var baseTileOverlay: MKTileOverlay?
+    private var locationOffset = ROBLidarLocationOffsetStore.load()
     private var pendingStyleCamera: MKMapCamera?
     private var styleCameraRestoreGeneration = 0
 
@@ -225,7 +266,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         addSubview(scanStatusLabel)
 
         instructionLabel.translatesAutoresizingMaskIntoConstraints = false
-        instructionLabel.text = "Tap the map to choose a destination • Pinch to zoom"
+        instructionLabel.text = "Long-press ROB's actual position • Tap destination • Pinch to zoom"
         instructionLabel.textAlignment = .center
         instructionLabel.font = .preferredFont(forTextStyle: .caption1)
         instructionLabel.textColor = .white
@@ -249,7 +290,15 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         let tap = UITapGestureRecognizer(target: self, action: #selector(mapTapped(_:)))
         tap.delegate = self
         tap.cancelsTouchesInView = false
+        let locationPress = UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(mapLocationPressed(_:))
+        )
+        locationPress.minimumPressDuration = 0.6
+        locationPress.delegate = self
+        tap.require(toFail: locationPress)
         mapView.addGestureRecognizer(tap)
+        mapView.addGestureRecognizer(locationPress)
 
         NSLayoutConstraint.activate([
             mapView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -322,21 +371,103 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     }
 
     func updateRobot(latitude: Double, longitude: Double) {
-        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+        let rawCoordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        guard CLLocationCoordinate2DIsValid(rawCoordinate) else { return }
+        rawRobotCoordinate = rawCoordinate
+        if let pendingPerceivedRobotCoordinate {
+            locationOffset = Self.locationOffset(
+                from: rawCoordinate,
+                to: pendingPerceivedRobotCoordinate
+            )
+            ROBLidarLocationOffsetStore.save(locationOffset)
+            self.pendingPerceivedRobotCoordinate = nil
+        }
+        let coordinate = Self.coordinate(from: rawCoordinate, applying: locationOffset)
+        displayRobot(at: coordinate)
+        if !hasCenteredOnRobot {
+            hasCenteredOnRobot = true
+            recenter(animated: false)
+        }
+    }
+
+    private func displayRobot(at coordinate: CLLocationCoordinate2D?) {
         robotCoordinate = coordinate
+        guard let coordinate else {
+            mapView.removeAnnotation(robotAnnotation)
+            lidarView.robotCoordinate = nil
+            refreshScanStatus()
+            lidarView.setNeedsDisplay()
+            return
+        }
         robotAnnotation.coordinate = coordinate
-        robotAnnotation.title = "ROB"
+        robotAnnotation.title = locationOffset.isAdjusted || pendingPerceivedRobotCoordinate != nil
+            ? "ROB • Adjusted location"
+            : "ROB"
         if !mapView.annotations.contains(where: { $0 === robotAnnotation }) {
             mapView.addAnnotation(robotAnnotation)
         }
         lidarView.robotCoordinate = coordinate
         refreshScanStatus()
         lidarView.setNeedsDisplay()
-        if !hasCenteredOnRobot {
-            hasCenteredOnRobot = true
-            recenter(animated: false)
+    }
+
+    func alignRobotToMapCenter() {
+        setPerceivedRobotCoordinate(mapView.centerCoordinate)
+    }
+
+    func resetPerceivedRobotLocation() {
+        locationOffset = .zero
+        pendingPerceivedRobotCoordinate = nil
+        ROBLidarLocationOffsetStore.save(locationOffset)
+        displayRobot(at: rawRobotCoordinate)
+    }
+
+    var locationAdjustmentDescription: String {
+        guard locationOffset.isAdjusted else {
+            return pendingPerceivedRobotCoordinate == nil ? "Device GPS" : "Manual anchor"
         }
+        return String(
+            format: "East %+.1f m • North %+.1f m",
+            locationOffset.eastMeters,
+            locationOffset.northMeters
+        )
+    }
+
+    private func setPerceivedRobotCoordinate(_ coordinate: CLLocationCoordinate2D) {
+        guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+        if let rawRobotCoordinate {
+            locationOffset = Self.locationOffset(from: rawRobotCoordinate, to: coordinate)
+            pendingPerceivedRobotCoordinate = nil
+            ROBLidarLocationOffsetStore.save(locationOffset)
+        } else {
+            pendingPerceivedRobotCoordinate = coordinate
+        }
+        displayRobot(at: coordinate)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    private static func locationOffset(
+        from source: CLLocationCoordinate2D,
+        to target: CLLocationCoordinate2D
+    ) -> ROBLidarLocationOffset {
+        let averageLatitudeRadians = ((source.latitude + target.latitude) / 2) * .pi / 180
+        let longitudeMeters = max(1, 111_320 * cos(averageLatitudeRadians))
+        return ROBLidarLocationOffset(
+            eastMeters: (target.longitude - source.longitude) * longitudeMeters,
+            northMeters: (target.latitude - source.latitude) * 111_132
+        )
+    }
+
+    private static func coordinate(
+        from source: CLLocationCoordinate2D,
+        applying offset: ROBLidarLocationOffset
+    ) -> CLLocationCoordinate2D {
+        let latitude = source.latitude + offset.northMeters / 111_132
+        let longitudeMeters = max(1, 111_320 * cos(source.latitude * .pi / 180))
+        return CLLocationCoordinate2D(
+            latitude: latitude,
+            longitude: source.longitude + offset.eastMeters / longitudeMeters
+        )
     }
 
     func updateLaserPoints(_ points: [String], headingRadians: Double) {
@@ -420,7 +551,12 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
 
     private func refreshScanStatus() {
         let gridState = hasOccupancyMap ? "GRID LIVE" : "NO GRID"
-        let anchorState = robotCoordinate == nil ? "MAP CENTER" : "GPS"
+        let anchorState: String
+        if locationOffset.isAdjusted || pendingPerceivedRobotCoordinate != nil {
+            anchorState = "ADJUSTED"
+        } else {
+            anchorState = robotCoordinate == nil ? "MAP CENTER" : "GPS"
+        }
         scanStatusLabel.text = String(
             format: "LIDAR / %04d / %@ / %@ / %d%% / N%+.0f°",
             lidarReturnCount,
@@ -490,6 +626,12 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
             didSelectDestinationLatitude: coordinate.latitude,
             longitude: coordinate.longitude
         )
+    }
+
+    @objc private func mapLocationPressed(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        let point = recognizer.location(in: mapView)
+        setPerceivedRobotCoordinate(mapView.convert(point, toCoordinateFrom: mapView))
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {

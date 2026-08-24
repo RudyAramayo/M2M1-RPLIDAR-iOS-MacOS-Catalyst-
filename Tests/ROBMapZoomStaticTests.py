@@ -7,12 +7,14 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MAP_VIEW = ROOT / "RPLidar" / "ROBOpenStreetMapView.swift"
+VIEW_CONTROLLER = ROOT / "RPLidar" / "RPLidarViewController.swift"
 
 
 class MapZoomTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = MAP_VIEW.read_text(encoding="utf-8")
+        cls.controller = VIEW_CONTROLLER.read_text(encoding="utf-8")
 
     def test_all_styles_enable_closest_mapkit_zoom(self) -> None:
         self.assertIn("private static let closestCameraDistance: CLLocationDistance = 1", self.source)
@@ -37,6 +39,16 @@ class MapZoomTests(unittest.TestCase):
         self.assertIn("!samples.isEmpty || occupancyMapImage != nil", self.source)
         self.assertIn("let centerCoordinate = mapView.centerCoordinate", self.source)
         self.assertIn('robotCoordinate == nil ? "MAP CENTER" : "GPS"', self.source)
+
+    def test_perceived_location_can_be_aligned_and_reset(self) -> None:
+        self.assertIn("UILongPressGestureRecognizer(", self.source)
+        self.assertIn("setPerceivedRobotCoordinate", self.source)
+        self.assertIn("ROBLidarLocationOffsetStore.save(locationOffset)", self.source)
+        self.assertIn("alignRobotToMapCenter()", self.source)
+        self.assertIn("resetPerceivedRobotLocation()", self.source)
+        self.assertIn('anchorState = "ADJUSTED"', self.source)
+        self.assertIn('"Set ROB to Map Center"', self.controller)
+        self.assertIn('"Use Device GPS"', self.controller)
 
 
 if __name__ == "__main__":
