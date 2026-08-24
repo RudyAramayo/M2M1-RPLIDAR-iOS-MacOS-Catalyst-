@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Regression checks for preserving maximum map zoom across base-map styles."""
+
+from pathlib import Path
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MAP_VIEW = ROOT / "RPLidar" / "ROBOpenStreetMapView.swift"
+
+
+class MapZoomTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.source = MAP_VIEW.read_text(encoding="utf-8")
+
+    def test_all_styles_enable_closest_mapkit_zoom(self) -> None:
+        self.assertIn("private static let closestCameraDistance: CLLocationDistance = 1", self.source)
+        self.assertIn("MKMapView.CameraZoomRange(", self.source)
+        self.assertIn("minCenterCoordinateDistance: Self.closestCameraDistance", self.source)
+        self.assertIn("mapView.setCameraZoomRange(zoomRange, animated: false)", self.source)
+        self.assertIn("enableClosestMapZoom()", self.source)
+
+    def test_style_switch_preserves_camera_after_renderer_replacement(self) -> None:
+        self.assertIn("mapView.camera.copy() as? MKMapCamera", self.source)
+        self.assertIn("restoreCameraAfterStyleChange(preservedCamera)", self.source)
+        self.assertIn("DispatchQueue.main.async", self.source)
+        self.assertGreaterEqual(
+            self.source.count("setCamera("),
+            2,
+            "Camera should be restored immediately and after MapKit replaces its renderer",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

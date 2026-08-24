@@ -136,6 +136,8 @@ private enum ROBLidarOverlayCalibrationStore {
 }
 
 final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizerDelegate {
+    private static let closestCameraDistance: CLLocationDistance = 1
+
     weak var mapDelegate: ROBOpenStreetMapViewDelegate?
 
     private let mapView = MKMapView(frame: .zero)
@@ -155,6 +157,8 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     private(set) var overlayCalibration = ROBLidarOverlayCalibrationStore.load()
     private(set) var baseMapStyle = ROBLidarBaseMapStyleStore.load()
     private var baseTileOverlay: MKTileOverlay?
+    private var pendingStyleCamera: MKMapCamera?
+    private var styleCameraRestoreGeneration = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -178,6 +182,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         mapView.showsCompass = true
         mapView.showsScale = true
         mapView.pointOfInterestFilter = .excludingAll
+        enableClosestMapZoom()
         addSubview(mapView)
 
         applyBaseMapStyle(baseMapStyle, persist: false)
@@ -360,17 +365,47 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     }
 
     private func applyBaseMapStyle(_ style: ROBLidarBaseMapStyle, persist: Bool) {
+        let preservedCamera = persist ? mapView.camera.copy() as? MKMapCamera : nil
         if let baseTileOverlay {
             mapView.removeOverlay(baseTileOverlay)
         }
         baseMapStyle = style
         baseTileOverlay = ROBLidarBaseMapLayer.install(style, on: mapView)
+        enableClosestMapZoom()
         attributionLabel.text = style.attribution
         attributionLabel.isHidden = style.attribution == nil
         if persist {
             ROBLidarBaseMapStyleStore.save(style)
         }
+        restoreCameraAfterStyleChange(preservedCamera)
         lidarView.setNeedsDisplay()
+    }
+
+    private func enableClosestMapZoom() {
+        guard let zoomRange = MKMapView.CameraZoomRange(
+            minCenterCoordinateDistance: Self.closestCameraDistance
+        ) else { return }
+        mapView.setCameraZoomRange(zoomRange, animated: false)
+    }
+
+    private func restoreCameraAfterStyleChange(_ camera: MKMapCamera?) {
+        guard let camera else { return }
+        styleCameraRestoreGeneration &+= 1
+        let generation = styleCameraRestoreGeneration
+        pendingStyleCamera = camera
+
+        // MapKit can replace its renderer after mapType changes. Restore once
+        // immediately and once on the next run loop after that replacement.
+        mapView.setCamera(camera, animated: false)
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  generation == self.styleCameraRestoreGeneration,
+                  let pendingStyleCamera = self.pendingStyleCamera else { return }
+            self.enableClosestMapZoom()
+            self.mapView.setCamera(pendingStyleCamera, animated: false)
+            self.pendingStyleCamera = nil
+            self.lidarView.setNeedsDisplay()
+        }
     }
 
     private func refreshScanStatus() {
