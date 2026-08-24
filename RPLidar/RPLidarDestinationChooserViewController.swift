@@ -400,7 +400,8 @@ final class RPLidarDestinationChooserViewController: UIViewController {
             self?.recordAndShow(
                 name: coordinateName,
                 latitude: coordinate.latitude,
-                longitude: coordinate.longitude
+                longitude: coordinate.longitude,
+                focusOnMap: false
             )
         })
         present(alert, animated: true)
@@ -540,7 +541,12 @@ final class RPLidarDestinationChooserViewController: UIViewController {
         present(chooser, animated: true)
     }
 
-    private func recordAndShow(name: String, latitude: Double, longitude: Double) {
+    private func recordAndShow(
+        name: String,
+        latitude: Double,
+        longitude: Double,
+        focusOnMap: Bool = true
+    ) {
         shouldCenterOnNextLocation = false
         guard let destination = historyStore.record(
             name: name,
@@ -551,24 +557,31 @@ final class RPLidarDestinationChooserViewController: UIViewController {
             return
         }
         tableView.reloadData()
-        show(destination, animated: true, notify: true)
+        show(destination, animated: true, notify: true, focusOnMap: focusOnMap)
     }
 
-    private func show(_ destination: RPLidarDestination, animated: Bool, notify: Bool) {
+    private func show(
+        _ destination: RPLidarDestination,
+        animated: Bool,
+        notify: Bool,
+        focusOnMap: Bool = true
+    ) {
         destinationAnnotation.coordinate = destination.coordinate
         destinationAnnotation.title = destination.displayName
         if !mapView.annotations.contains(where: { $0 === destinationAnnotation }) {
             mapView.addAnnotation(destinationAnnotation)
         }
-        mapView.selectAnnotation(destinationAnnotation, animated: animated)
-        mapView.setRegion(
-            MKCoordinateRegion(
-                center: destination.coordinate,
-                latitudinalMeters: 250,
-                longitudinalMeters: 250
-            ),
-            animated: animated
-        )
+        if focusOnMap {
+            mapView.selectAnnotation(destinationAnnotation, animated: animated)
+            mapView.setRegion(
+                MKCoordinateRegion(
+                    center: destination.coordinate,
+                    latitudinalMeters: 250,
+                    longitudinalMeters: 250
+                ),
+                animated: animated
+            )
+        }
         statusLabel.text = "Selected \(destination.displayName)"
         if notify {
             onDestinationSelected?(destination)

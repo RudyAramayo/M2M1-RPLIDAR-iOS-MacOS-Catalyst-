@@ -173,6 +173,170 @@ private enum ROBLidarLocationOffsetStore {
     }
 }
 
+private struct ROBMissionWaypoint: Codable, Equatable {
+    let id: UUID
+    let latitude: Double
+    let longitude: Double
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    var isValid: Bool {
+        latitude.isFinite && longitude.isFinite &&
+            (-90 ... 90).contains(latitude) && (-180 ... 180).contains(longitude)
+    }
+}
+
+private struct ROBMissionPath: Codable, Equatable {
+    let id: UUID
+    var name: String
+    var waypoints: [ROBMissionWaypoint]
+    var modifiedAt: Date
+}
+
+private final class ROBMissionPathStore {
+    private static let missionsKey = "RPLidar.OpenStreetMap.Missions.v1"
+    private static let activeMissionKey = "RPLidar.OpenStreetMap.ActiveMission.v1"
+    private static let maximumMissionCount = 12
+    static let maximumWaypointCount = 50
+
+    private let defaults: UserDefaults
+    private(set) var missions: [ROBMissionPath]
+    private(set) var activeMissionID: UUID?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: Self.missionsKey),
+           let decoded = try? JSONDecoder().decode([ROBMissionPath].self, from: data) {
+            missions = decoded
+                .filter { $0.waypoints.allSatisfy(\.isValid) }
+                .sorted { $0.modifiedAt > $1.modifiedAt }
+                .prefix(Self.maximumMissionCount)
+                .map { $0 }
+        } else {
+            missions = []
+        }
+        activeMissionID = defaults.string(forKey: Self.activeMissionKey).flatMap(UUID.init(uuidString:))
+        if activeMission == nil {
+            activeMissionID = missions.first?.id
+        }
+    }
+
+    var activeMission: ROBMissionPath? {
+        guard let activeMissionID else { return nil }
+        return missions.first { $0.id == activeMissionID }
+    }
+
+    @discardableResult
+    func createMission(named name: String) -> ROBMissionPath {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mission = ROBMissionPath(
+            id: UUID(),
+            name: trimmed.isEmpty ? "Mission \(missions.count + 1)" : trimmed,
+            waypoints: [],
+            modifiedAt: Date()
+        )
+        missions.insert(mission, at: 0)
+        missions = Array(missions.prefix(Self.maximumMissionCount))
+        activeMissionID = mission.id
+        save()
+        return mission
+    }
+
+    func selectMission(id: UUID) {
+        guard missions.contains(where: { $0.id == id }) else { return }
+        activeMissionID = id
+        save()
+    }
+
+    @discardableResult
+    func appendWaypoint(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        let waypoint = ROBMissionWaypoint(
+            id: UUID(),
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        )
+        guard waypoint.isValid,
+              var mission = activeMission,
+              mission.waypoints.count < Self.maximumWaypointCount else { return false }
+        mission.waypoints.append(waypoint)
+        replace(mission)
+        return true
+    }
+
+    func removeWaypoint(id: UUID) {
+        guard var mission = activeMission else { return }
+        mission.waypoints.removeAll { $0.id == id }
+        replace(mission)
+    }
+
+    func removeLastWaypoint() {
+        guard var mission = activeMission, !mission.waypoints.isEmpty else { return }
+        mission.waypoints.removeLast()
+        replace(mission)
+    }
+
+    func removeAllWaypoints() {
+        guard var mission = activeMission, !mission.waypoints.isEmpty else { return }
+        mission.waypoints.removeAll()
+        replace(mission)
+    }
+
+    func reverseWaypoints() {
+        guard var mission = activeMission, mission.waypoints.count > 1 else { return }
+        mission.waypoints.reverse()
+        replace(mission)
+    }
+
+    func renameActiveMission(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, var mission = activeMission else { return }
+        mission.name = trimmed
+        replace(mission)
+    }
+
+    func deleteActiveMission() {
+        guard let activeMissionID else { return }
+        missions.removeAll { $0.id == activeMissionID }
+        self.activeMissionID = missions.first?.id
+        save()
+    }
+
+    private func replace(_ mission: ROBMissionPath) {
+        guard let index = missions.firstIndex(where: { $0.id == mission.id }) else { return }
+        var updated = mission
+        updated.modifiedAt = Date()
+        missions[index] = updated
+        save()
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(missions) {
+            defaults.set(data, forKey: Self.missionsKey)
+        }
+        if let activeMissionID {
+            defaults.set(activeMissionID.uuidString, forKey: Self.activeMissionKey)
+        } else {
+            defaults.removeObject(forKey: Self.activeMissionKey)
+        }
+    }
+}
+
+private final class ROBMissionWaypointAnnotation: MKPointAnnotation {
+    let waypointID: UUID
+    let sequence: Int
+
+    init(waypoint: ROBMissionWaypoint, sequence: Int) {
+        waypointID = waypoint.id
+        self.sequence = sequence
+        super.init()
+        coordinate = waypoint.coordinate
+        title = "Stop \(sequence)"
+        subtitle = String(format: "%.6f, %.6f", waypoint.latitude, waypoint.longitude)
+    }
+}
+
 final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizerDelegate {
     private static let closestCameraDistance: CLLocationDistance = 1
 
@@ -183,11 +347,16 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     private let recenterButton = UIButton(type: .system)
     private let searchButton = UIButton(type: .system)
     private let calibrationButton = UIButton(type: .system)
+    private let missionButton = UIButton(type: .system)
     private let instructionLabel = UILabel(frame: .zero)
     private let attributionLabel = UILabel(frame: .zero)
     private let scanStatusLabel = UILabel(frame: .zero)
     private let robotAnnotation = MKPointAnnotation()
     private let destinationAnnotation = MKPointAnnotation()
+    private let missionStore = ROBMissionPathStore()
+    private var missionAnnotations: [ROBMissionWaypointAnnotation] = []
+    private var missionPolyline: MKPolyline?
+    private var isAddingMissionStops = false
     private var rawRobotCoordinate: CLLocationCoordinate2D?
     private var robotCoordinate: CLLocationCoordinate2D?
     private var pendingPerceivedRobotCoordinate: CLLocationCoordinate2D?
@@ -252,6 +421,15 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
             action: #selector(calibrationPressed)
         )
         calibrationButton.accessibilityLabel = "Map and lidar settings"
+        configureMapButton(
+            missionButton,
+            title: "Missions",
+            symbol: "point.topleft.down.curvedto.point.bottomright.up",
+            action: #selector(missionPressed)
+        )
+        missionButton.accessibilityLabel = "Mission path tools"
+        missionButton.showsMenuAsPrimaryAction = true
+        rebuildMissionMenu()
 
         scanStatusLabel.translatesAutoresizingMaskIntoConstraints = false
         scanStatusLabel.text = "LIDAR / AWAITING LOCAL FRAME"
@@ -337,8 +515,12 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
             instructionLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.9),
             instructionLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
 
+            missionButton.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            missionButton.bottomAnchor.constraint(equalTo: instructionLabel.topAnchor, constant: -8),
+            missionButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 42),
+
             attributionLabel.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
-            attributionLabel.bottomAnchor.constraint(equalTo: instructionLabel.topAnchor, constant: -6)
+            attributionLabel.bottomAnchor.constraint(equalTo: missionButton.topAnchor, constant: -6)
         ])
 
         let initialRegion = MKCoordinateRegion(
@@ -346,6 +528,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
             span: MKCoordinateSpan(latitudeDelta: 120, longitudeDelta: 180)
         )
         mapView.setRegion(initialRegion, animated: false)
+        renderActiveMission()
     }
 
     private func configureMapButton(
@@ -368,6 +551,241 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         button.configuration = configuration
         button.addTarget(self, action: action, for: .touchUpInside)
         addSubview(button)
+    }
+
+    private func rebuildMissionMenu() {
+        var children: [UIMenuElement] = [
+            UIAction(title: "New Mission…", image: UIImage(systemName: "plus")) { [weak self] _ in
+                self?.presentNewMissionPrompt()
+            }
+        ]
+
+        if !missionStore.missions.isEmpty {
+            let missionChoices = missionStore.missions.map { mission in
+                UIAction(
+                    title: "\(mission.name) (\(mission.waypoints.count))",
+                    state: mission.id == missionStore.activeMissionID ? .on : .off
+                ) { [weak self] _ in
+                    guard let self else { return }
+                    self.isAddingMissionStops = false
+                    self.missionStore.selectMission(id: mission.id)
+                    self.renderActiveMission()
+                }
+            }
+            children.append(UIMenu(title: "Open Mission", children: missionChoices))
+        }
+
+        if let mission = missionStore.activeMission {
+            children.append(UIAction(
+                title: isAddingMissionStops ? "Finish Adding Stops" : "Add Stops",
+                image: UIImage(systemName: isAddingMissionStops ? "checkmark.circle" : "mappin.and.ellipse"),
+                state: isAddingMissionStops ? .on : .off
+            ) { [weak self] _ in
+                guard let self else { return }
+                self.isAddingMissionStops.toggle()
+                self.updateMissionInstructions()
+                self.rebuildMissionMenu()
+            })
+
+            if !mission.waypoints.isEmpty {
+                let stopMenus = mission.waypoints.enumerated().map { index, waypoint in
+                    UIMenu(
+                        title: String(
+                            format: "%d. %.5f, %.5f",
+                            index + 1,
+                            waypoint.latitude,
+                            waypoint.longitude
+                        ),
+                        children: [
+                            UIAction(title: "Use as Destination", image: UIImage(systemName: "flag.fill")) {
+                                [weak self] _ in self?.useMissionWaypoint(waypoint, sequence: index + 1)
+                            },
+                            UIAction(
+                                title: "Remove Stop",
+                                image: UIImage(systemName: "trash"),
+                                attributes: .destructive
+                            ) { [weak self] _ in
+                                self?.missionStore.removeWaypoint(id: waypoint.id)
+                                self?.renderActiveMission()
+                            }
+                        ]
+                    )
+                }
+                children.append(UIMenu(title: "Stops", children: stopMenus))
+                children.append(UIAction(title: "Undo Last Stop", image: UIImage(systemName: "arrow.uturn.backward")) {
+                    [weak self] _ in
+                    self?.missionStore.removeLastWaypoint()
+                    self?.renderActiveMission()
+                })
+                if mission.waypoints.count > 1 {
+                    children.append(UIAction(title: "Reverse Path", image: UIImage(systemName: "arrow.left.arrow.right")) {
+                        [weak self] _ in
+                        self?.missionStore.reverseWaypoints()
+                        self?.renderActiveMission()
+                    })
+                }
+                children.append(UIAction(
+                    title: "Clear Stops",
+                    image: UIImage(systemName: "xmark.circle"),
+                    attributes: .destructive
+                ) { [weak self] _ in
+                    self?.confirmClearMission()
+                })
+            }
+
+            children.append(UIAction(title: "Rename \(mission.name)…", image: UIImage(systemName: "pencil")) {
+                [weak self] _ in self?.presentRenameMissionPrompt()
+            })
+            children.append(UIAction(
+                title: "Delete \(mission.name)",
+                image: UIImage(systemName: "trash"),
+                attributes: .destructive
+            ) { [weak self] _ in
+                self?.confirmDeleteMission()
+            })
+        }
+
+        missionButton.menu = UIMenu(title: "Mission Paths", children: children)
+        var configuration = missionButton.configuration
+        configuration?.title = missionStore.activeMission?.name ?? "Missions"
+        missionButton.configuration = configuration
+    }
+
+    private func renderActiveMission() {
+        mapView.removeAnnotations(missionAnnotations)
+        missionAnnotations.removeAll()
+        if let missionPolyline {
+            mapView.removeOverlay(missionPolyline)
+            self.missionPolyline = nil
+        }
+
+        guard let mission = missionStore.activeMission else {
+            isAddingMissionStops = false
+            updateMissionInstructions()
+            rebuildMissionMenu()
+            return
+        }
+        missionAnnotations = mission.waypoints.enumerated().map {
+            ROBMissionWaypointAnnotation(waypoint: $0.element, sequence: $0.offset + 1)
+        }
+        mapView.addAnnotations(missionAnnotations)
+        if mission.waypoints.count > 1 {
+            var coordinates = mission.waypoints.map(\.coordinate)
+            let polyline = MKPolyline(coordinates: &coordinates, count: coordinates.count)
+            mapView.addOverlay(polyline, level: .aboveLabels)
+            missionPolyline = polyline
+        }
+        updateMissionInstructions()
+        rebuildMissionMenu()
+    }
+
+    private func updateMissionInstructions() {
+        guard let mission = missionStore.activeMission else {
+            instructionLabel.text = "Long-press ROB's actual position • Tap destination • Pinch to zoom"
+            return
+        }
+        if isAddingMissionStops {
+            instructionLabel.text = "Building \(mission.name) • Tap map to add stops • Pinch to zoom"
+        } else {
+            instructionLabel.text = "\(mission.name) • \(mission.waypoints.count) stops • Tap destination or open Missions"
+        }
+    }
+
+    private func presentNewMissionPrompt() {
+        presentMissionNamePrompt(title: "New Mission", initialName: "") { [weak self] name in
+            guard let self else { return }
+            self.missionStore.createMission(named: name)
+            self.isAddingMissionStops = true
+            self.renderActiveMission()
+        }
+    }
+
+    private func presentRenameMissionPrompt() {
+        guard let mission = missionStore.activeMission else { return }
+        presentMissionNamePrompt(title: "Rename Mission", initialName: mission.name) { [weak self] name in
+            self?.missionStore.renameActiveMission(name)
+            self?.renderActiveMission()
+        }
+    }
+
+    private func presentMissionNamePrompt(
+        title: String,
+        initialName: String,
+        completion: @escaping (String) -> Void
+    ) {
+        guard let presenter = presentingViewController else { return }
+        let alert = UIAlertController(title: title, message: "Name this saved waypoint path.", preferredStyle: .alert)
+        alert.addTextField { field in
+            field.text = initialName
+            field.placeholder = "Mission name"
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak alert] _ in
+            completion(alert?.textFields?.first?.text ?? "")
+        })
+        presenter.present(alert, animated: true)
+    }
+
+    private func confirmClearMission() {
+        guard let mission = missionStore.activeMission,
+              let presenter = presentingViewController else { return }
+        let alert = UIAlertController(
+            title: "Clear \(mission.name)?",
+            message: "The mission remains saved, but all of its stops will be removed.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Clear Stops", style: .destructive) { [weak self] _ in
+            self?.missionStore.removeAllWaypoints()
+            self?.renderActiveMission()
+        })
+        presenter.present(alert, animated: true)
+    }
+
+    private func confirmDeleteMission() {
+        guard let mission = missionStore.activeMission,
+              let presenter = presentingViewController else { return }
+        let alert = UIAlertController(
+            title: "Delete \(mission.name)?",
+            message: "This permanently removes the saved mission path.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+            self?.missionStore.deleteActiveMission()
+            self?.isAddingMissionStops = false
+            self?.renderActiveMission()
+        })
+        presenter.present(alert, animated: true)
+    }
+
+    private var presentingViewController: UIViewController? {
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                var presenter = viewController
+                while let presented = presenter.presentedViewController {
+                    presenter = presented
+                }
+                return presenter
+            }
+            responder = current.next
+        }
+        return nil
+    }
+
+    private func useMissionWaypoint(_ waypoint: ROBMissionWaypoint, sequence: Int) {
+        showDestination(
+            latitude: waypoint.latitude,
+            longitude: waypoint.longitude,
+            title: "Mission stop \(sequence)"
+        )
+        mapDelegate?.openStreetMapView(
+            self,
+            didSelectDestinationLatitude: waypoint.latitude,
+            longitude: waypoint.longitude
+        )
     }
 
     func updateRobot(latitude: Double, longitude: Double) {
@@ -509,6 +927,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         attributionLabel.isHidden = style.attribution == nil
         if persist {
             ROBLidarBaseMapStyleStore.save(style)
+            renderActiveMission()
         }
         restoreCameraAfterStyleChange(preservedCamera)
         lidarView.setNeedsDisplay()
@@ -567,7 +986,12 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         )
     }
 
-    func showDestination(latitude: Double, longitude: Double, title: String) {
+    func showDestination(
+        latitude: Double,
+        longitude: Double,
+        title: String,
+        focusOnDestination: Bool = true
+    ) {
         let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         guard CLLocationCoordinate2DIsValid(coordinate) else { return }
         destinationAnnotation.coordinate = coordinate
@@ -575,6 +999,7 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         if !mapView.annotations.contains(where: { $0 === destinationAnnotation }) {
             mapView.addAnnotation(destinationAnnotation)
         }
+        guard focusOnDestination else { return }
         mapView.selectAnnotation(destinationAnnotation, animated: true)
         mapView.setRegion(
             MKCoordinateRegion(center: coordinate, latitudinalMeters: 250, longitudinalMeters: 250),
@@ -610,17 +1035,24 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         mapDelegate?.openStreetMapViewDidRequestOverlayCalibration(self)
     }
 
+    @objc private func missionPressed() {}
+
     @objc private func mapTapped(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
         let point = recognizer.location(in: mapView)
         let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
         guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+        if isAddingMissionStops {
+            guard missionStore.appendWaypoint(coordinate) else { return }
+            renderActiveMission()
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            return
+        }
         destinationAnnotation.coordinate = coordinate
         destinationAnnotation.title = "Selected destination"
         if !mapView.annotations.contains(where: { $0 === destinationAnnotation }) {
             mapView.addAnnotation(destinationAnnotation)
         }
-        mapView.selectAnnotation(destinationAnnotation, animated: true)
         mapDelegate?.openStreetMapView(
             self,
             didSelectDestinationLatitude: coordinate.latitude,
@@ -636,7 +1068,8 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         let touchedView = touch.view
-        return touchedView !== searchButton && touchedView !== recenterButton
+        return touchedView !== searchButton && touchedView !== recenterButton &&
+            touchedView !== calibrationButton && touchedView !== missionButton
     }
 
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
@@ -644,6 +1077,14 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     }
 
     func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+        if let polyline = overlay as? MKPolyline {
+            let renderer = MKPolylineRenderer(polyline: polyline)
+            renderer.strokeColor = UIColor.systemOrange.withAlphaComponent(0.92)
+            renderer.lineWidth = 5
+            renderer.lineJoin = .round
+            renderer.lineCap = .round
+            return renderer
+        }
         guard let tileOverlay = overlay as? MKTileOverlay else {
             return MKOverlayRenderer(overlay: overlay)
         }
@@ -654,7 +1095,14 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         _ mapView: MKMapView,
         viewFor annotation: MKAnnotation
     ) -> MKAnnotationView? {
-        let identifier = annotation === robotAnnotation ? "robot" : "destination"
+        let identifier: String
+        if annotation === robotAnnotation {
+            identifier = "robot"
+        } else if annotation is ROBMissionWaypointAnnotation {
+            identifier = "mission-stop"
+        } else {
+            identifier = "destination"
+        }
         let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier) as? MKMarkerAnnotationView
             ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
         view.annotation = annotation
@@ -662,9 +1110,15 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         if annotation === robotAnnotation {
             view.markerTintColor = UIColor(red: 0.94, green: 0.66, blue: 0.25, alpha: 1)
             view.glyphImage = UIImage(systemName: "dot.radiowaves.left.and.right")
+            view.glyphText = nil
+        } else if let waypoint = annotation as? ROBMissionWaypointAnnotation {
+            view.markerTintColor = .systemOrange
+            view.glyphImage = nil
+            view.glyphText = "\(waypoint.sequence)"
         } else {
             view.markerTintColor = .systemRed
             view.glyphImage = UIImage(systemName: "flag.fill")
+            view.glyphText = nil
         }
         return view
     }

@@ -421,7 +421,12 @@ class RPLidarViewController: UIViewController {
         present(chooser, animated: true)
     }
 
-    private func selectDestination(name: String, latitude: Double, longitude: Double) {
+    private func selectDestination(
+        name: String,
+        latitude: Double,
+        longitude: Double,
+        focusOnMap: Bool = true
+    ) {
         let historyStore = RPLidarDestinationHistoryStore()
         guard let destination = historyStore.record(
             name: name,
@@ -434,7 +439,8 @@ class RPLidarViewController: UIViewController {
         openStreetMapView.showDestination(
             latitude: destination.latitude,
             longitude: destination.longitude,
-            title: destination.displayName
+            title: destination.displayName,
+            focusOnDestination: focusOnMap
         )
         mapStatusLabel.text = "Destination: \(destination.displayName)"
         mapStatusLabel.textColor = .white
@@ -1101,7 +1107,8 @@ extension RPLidarViewController: ROBOpenStreetMapViewDelegate {
         selectDestination(
             name: String(format: "%.6f, %.6f", latitude, longitude),
             latitude: latitude,
-            longitude: longitude
+            longitude: longitude,
+            focusOnMap: false
         )
     }
 }

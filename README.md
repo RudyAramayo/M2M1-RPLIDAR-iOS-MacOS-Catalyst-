@@ -114,6 +114,12 @@ the history can be cleared. These are local diagnostic selections. RPLidar
 retains its restricted `lidarPublisher` credential and does not send
 operator/navigation commands.
 
+Map taps preserve the current camera distance. Use **Missions** → **New
+Mission…** to create a named path, then tap the map in **Add Stops** mode to
+place numbered waypoints. Mission paths persist locally and can be reopened,
+reversed, edited, or cleared; any individual stop can also be selected as the
+current diagnostic destination.
+
 Long-press ROB's actual position on the map to calibrate the perceived lidar
 location. RPLidar stores the resulting east/north correction and reapplies it
 to new device-location updates. The lidar settings sheet also provides **Set

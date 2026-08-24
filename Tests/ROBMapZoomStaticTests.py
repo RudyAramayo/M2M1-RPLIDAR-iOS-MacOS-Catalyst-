@@ -50,6 +50,22 @@ class MapZoomTests(unittest.TestCase):
         self.assertIn('"Set ROB to Map Center"', self.controller)
         self.assertIn('"Use Device GPS"', self.controller)
 
+    def test_tapping_a_destination_preserves_the_current_camera(self) -> None:
+        tap_handler = self.source.split("@objc private func mapTapped", 1)[1].split(
+            "@objc private func mapLocationPressed", 1
+        )[0]
+        self.assertNotIn("setRegion(", tap_handler)
+        self.assertNotIn("selectAnnotation(", tap_handler)
+        self.assertIn("focusOnMap: false", self.controller)
+
+    def test_named_mission_paths_are_persisted_and_rendered(self) -> None:
+        self.assertIn("private final class ROBMissionPathStore", self.source)
+        self.assertIn('title: "New Mission…"', self.source)
+        self.assertIn('? "Finish Adding Stops" : "Add Stops"', self.source)
+        self.assertIn("missionStore.appendWaypoint(coordinate)", self.source)
+        self.assertIn("MKPolyline(coordinates:", self.source)
+        self.assertIn('UIMenu(title: "Open Mission"', self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
