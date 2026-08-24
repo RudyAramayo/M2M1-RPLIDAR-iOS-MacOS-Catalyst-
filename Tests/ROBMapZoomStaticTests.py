@@ -31,6 +31,13 @@ class MapZoomTests(unittest.TestCase):
             "Camera should be restored immediately and after MapKit replaces its renderer",
         )
 
+    def test_live_lidar_stays_visible_with_or_without_gps(self) -> None:
+        self.assertIn("insertSubview(lidarView, aboveSubview: mapView)", self.source)
+        self.assertIn("drawingAnchorCoordinate(in: mapView)", self.source)
+        self.assertIn("!samples.isEmpty || occupancyMapImage != nil", self.source)
+        self.assertIn("let centerCoordinate = mapView.centerCoordinate", self.source)
+        self.assertIn('robotCoordinate == nil ? "MAP CENTER" : "GPS"', self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
