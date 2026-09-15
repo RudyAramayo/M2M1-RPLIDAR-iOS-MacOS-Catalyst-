@@ -8,45 +8,6 @@
 
 import UIKit
 
-enum RPLidarLaunchConfiguration {
-    static let developmentModeDefaultsKey = "ROBDevelopmentMode"
-    static let guiEnvironmentKey = "RPLIDAR_GUI"
-
-    static func registerDefaults() {
-        #if DEBUG
-        let developmentModeDefault = true
-        #else
-        let developmentModeDefault = false
-        #endif
-        UserDefaults.standard.register(defaults: [
-            developmentModeDefaultsKey: developmentModeDefault
-        ])
-    }
-
-    static var developmentModeEnabled: Bool {
-        registerDefaults()
-        return UserDefaults.standard.bool(forKey: developmentModeDefaultsKey)
-    }
-
-    static func setDevelopmentModeEnabled(_ enabled: Bool) {
-        UserDefaults.standard.set(enabled, forKey: developmentModeDefaultsKey)
-    }
-
-    static var shouldShowGUI: Bool {
-        let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("--rplidar-headless") { return false }
-        if arguments.contains("--rplidar-gui") { return true }
-
-        if let environmentValue = ProcessInfo.processInfo.environment[guiEnvironmentKey]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() {
-            if ["1", "true", "yes", "on"].contains(environmentValue) { return true }
-            if ["0", "false", "no", "off"].contains(environmentValue) { return false }
-        }
-        return developmentModeEnabled
-    }
-}
-
 private final class RPLidarHeadlessViewController: UIViewController {
     override func loadView() {
         let placeholderView = UIView(frame: .zero)
@@ -97,7 +58,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 return false
             }
             applicationWindow.makeKeyAndVisible()
-            print("RPLidar development GUI enabled")
+            print("RPLidar map GUI enabled")
         } else {
             // Retain UIKit's tracked window so the map can be opened later
             // from the menu without enabling Development Mode. UIKit requires
@@ -117,7 +78,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     override func buildMenu(with builder: UIMenuBuilder) {
         super.buildMenu(with: builder)
-        guard builder.system == .main else { return }
+        guard builder.system == .main, RPLidarLaunchConfiguration.supportsHeadless else { return }
 
         let openMap = UIAction(
             title: "Open RPLidar Map",

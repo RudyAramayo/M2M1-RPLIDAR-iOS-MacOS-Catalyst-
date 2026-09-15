@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1D4A10E3C5A000100000001 /* RPLidarLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D4A10D3C5A000100000001 /* RPLidarLaunchConfiguration.swift */; };
 		A1D4A10C3C5A000100000001 /* RPLidarConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D4A10B3C5A000100000001 /* RPLidarConnection.swift */; };
 		A1D4A1023C5A000100000001 /* ROBLidarTelemetryProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D4A1013C5A000100000001 /* ROBLidarTelemetryProtocol.swift */; };
 		A1D4A1043C5A000100000001 /* RPLidarMapTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D4A1033C5A000100000001 /* RPLidarMapTransform.swift */; };
@@ -83,6 +84,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1D4A10D3C5A000100000001 /* RPLidarLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarLaunchConfiguration.swift; sourceTree = "<group>"; };
 		A1D4A10B3C5A000100000001 /* RPLidarConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarConnection.swift; sourceTree = "<group>"; };
 		A1D4A1013C5A000100000001 /* ROBLidarTelemetryProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ROBLidarTelemetryProtocol.swift; sourceTree = "<group>"; };
 		A1D4A1033C5A000100000001 /* RPLidarMapTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarMapTransform.swift; sourceTree = "<group>"; };
@@ -166,6 +168,7 @@
 				A1D4A1093C5A000100000001 /* ROBOpenStreetMapView.swift */,
 				D48CDCC02E049750001A43B0 /* RPLidar.entitlements */,
 				D47643A4270D02300032A370 /* AppDelegate.swift */,
+				A1D4A10D3C5A000100000001 /* RPLidarLaunchConfiguration.swift */,
 				D4AF56282E3583E800DA4EF0 /* ExceptionCatcher.h */,
 				D4AF56262E3583C700DA4EF0 /* ExceptionCatcher.mm */,
 				D47643A6270D02300032A370 /* RPLidarViewController.swift */,
@@ -321,6 +324,7 @@
 				D47643A7270D02300032A370 /* RPLidarViewController.swift in Sources */,
 				D443B2C22AC8BFF6008A703A /* BitmapImageWrapper.mm in Sources */,
 				D47643A5270D02300032A370 /* AppDelegate.swift in Sources */,
+				A1D4A10E3C5A000100000001 /* RPLidarLaunchConfiguration.swift in Sources */,
 				D4B223342E346C28003B9FF6 /* RPAppKitController.swift in Sources */,
 				D4D15924280217D200AFFA1E /* AutoNetClientConnection.swift in Sources */,
 				D4AF56272E3583C700DA4EF0 /* ExceptionCatcher.mm in Sources */,

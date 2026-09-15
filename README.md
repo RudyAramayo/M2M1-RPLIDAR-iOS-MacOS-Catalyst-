@@ -118,14 +118,17 @@ iOS. The App Group Unix socket is the supported low-overhead local IPC path for
 the shipping target. True NSXPC would require a native macOS or Mac Catalyst
 SlamwareSDK binary first.
 
-- Debug builds register `ROBDevelopmentMode` as enabled and open the map GUI,
-  matching Cerebro's development-mode behavior.
-- Release builds register Development Mode as disabled and keep the
+- iPhone and iPad launches always show the map and controls, in Debug and
+  Release builds, even with a saved disabled Development Mode preference or
+  headless launch overrides. Headless mode and its menu are Mac-only.
+- On a Mac, Debug builds register `ROBDevelopmentMode` as enabled and open the
+  map GUI, matching Cerebro's development-mode behavior.
+- On a Mac, Release builds register Development Mode as disabled and keep the
   storyboard-managed window hidden while the passthrough service continues.
-- The **RPLidar** menu always offers **Open RPLidar Map**, even when Development
-  Mode is disabled. Its checkmarked **Development Mode** item controls only
-  whether the map opens automatically on future launches.
-- `--rplidar-gui` and `--rplidar-headless` override that default. The
+- The Mac **RPLidar** menu always offers **Open RPLidar Map**, even when
+  Development Mode is disabled. Its checkmarked **Development Mode** item
+  controls only whether the map opens automatically on future launches.
+- On a Mac, `--rplidar-gui` and `--rplidar-headless` override that default. The
   `RPLIDAR_GUI` environment variable accepts `1`/`true` or `0`/`false` as an
   alternate override.
 
