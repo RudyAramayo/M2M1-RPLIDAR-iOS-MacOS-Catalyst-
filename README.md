@@ -52,6 +52,35 @@ The lidar connection, polling, authenticated frame-7 publishing, reconnects,
 and periodic map storage are owned by a UI-independent passthrough service.
 Opening or dismissing the GUI therefore does not start or stop the lidar feed.
 
+### Lidar unavailable or its IP changed
+
+The device defaults to `192.168.11.1:1445`. Set the `RPLIDAR_IP` Xcode launch
+environment variable (or the `RPLidarIPAddress` user default) to use another
+numeric IP address. The environment variable takes precedence.
+
+Before each SDK connection, including after a SLAM service restart, RPLidar
+checks the TCP service port with a one-second deadline and closes the probe
+socket. An invalid address or unavailable port leaves the app disconnected;
+the passthrough service logs the endpoint/error and retries after 0.5 seconds.
+Polling cannot bypass that delay. Once the port becomes available, the next
+retry connects automatically. An open port is only a preflight check: SDK
+connection failures are still handled if the device disappears or rejects the
+protocol handshake.
+
+Direct IP connections no longer start Bluetooth/Bonjour discovery on every
+retry, and discarded hardware connections are explicitly disconnected. This
+prevents the repeated discovery/socket accumulation that ended in
+`pipe_select_interrupter: Too many open files` while the device was offline.
+
+Connection regression fixtures (run on macOS):
+
+```sh
+swiftc RPLidar/RPLidarConnection.swift Tests/RPLidarConnectionFixtureTests.swift -o /tmp/rplidar-connection-tests
+/tmp/rplidar-connection-tests
+clang++ -fobjc-arc -fobjc-arc-exceptions -fblocks -std=c++17 -I Tests/Support -I RPLidar -framework Foundation RPLidar/ExceptionCatcher.mm Tests/ExceptionCatcherFixtureTests.mm -o /tmp/rplidar-exception-tests
+/tmp/rplidar-exception-tests
+```
+
 Wire scans use the fixed-layout `RLS1` format: a 68-byte pose/identity header
 plus four bytes per valid return (millimeters and angle). A 720-point scan is
 2,948 bytes and roughly 14.7 KB/s at 5 Hz before transport overhead. Both local

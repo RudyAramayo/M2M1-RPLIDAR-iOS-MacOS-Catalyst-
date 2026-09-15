@@ -13,9 +13,20 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@protocol RPSlamwarePlatformProtocol;
+
 @interface ExceptionCatcher : NSObject
 
 + (BOOL)catchException:(void(^_Nonnull)(void))tryBlock error:(__autoreleasing NSError *_Nullable*_Nullable)error;
+
+// Keep the throwing SDK call entirely in Objective-C++, so a failed connect
+// never unwinds a Swift initializer or leaves its captured controller alive.
++ (nullable id<RPSlamwarePlatformProtocol>)connectToHost:(NSString *)host
+                                                  port:(int)port
+                                                 error:(NSError *_Nullable*_Nullable)error;
+
++ (BOOL)disconnectPlatform:(id<RPSlamwarePlatformProtocol>)platform
+                     error:(NSError *_Nullable*_Nullable)error;
 
 @end
 

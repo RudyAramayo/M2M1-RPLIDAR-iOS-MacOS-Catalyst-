@@ -38,6 +38,7 @@ final class RPLidarPassthroughServer {
     static let lidarPulseFrequency: TimeInterval = 0.20
     static let mapPulseFrequency: TimeInterval = 5.0
     static let mapLocalStorageFrequency: TimeInterval = 30.0
+    private static let reconnectDelay: TimeInterval = 0.5
 
     let operationQueue = DispatchQueue(label: "com.orbitusrobotics.rplidar.passthrough")
     let autoNetClient = AutoNetClient(service: AutoNetClient.defaultService)
@@ -62,7 +63,7 @@ final class RPLidarPassthroughServer {
     private var timers: [DispatchSourceTimer] = []
     private var started = false
     private var isReconnecting = false
-    private var reconnectScheduled = false
+    private lazy var reconnectRetry = RPLidarRetryScheduler(queue: operationQueue)
     private var localIPCReady = false
     private var publisherDeviceID: UUID?
     private var localIPCSharedSecret: Data?
@@ -106,6 +107,8 @@ final class RPLidarPassthroughServer {
         localIPCClient.stop()
         autoNetClient.stop()
         operationQueue.async { [weak self] in
+            self?.reconnectRetry.cancel()
+            self?.lidar?.disconnect()
             self?.lidar = nil
             self?.latestScan = nil
             self?.latestMap = nil
@@ -124,6 +127,8 @@ final class RPLidarPassthroughServer {
     func requestReconnect() {
         operationQueue.async { [weak self] in
             guard let self else { return }
+            self.reconnectRetry.cancel()
+            self.lidar?.disconnect()
             self.lidar = nil
             self.reconnectLocked()
         }
@@ -214,38 +219,31 @@ final class RPLidarPassthroughServer {
 
     private func reconnectLocked() {
         dispatchPrecondition(condition: .onQueue(operationQueue))
-        guard isStarted, !isReconnecting else { return }
+        guard isStarted, !isReconnecting, !reconnectRetry.isScheduled else { return }
         if lidar != nil { return }
 
         isReconnecting = true
-        reconnectScheduled = false
         defer { isReconnecting = false }
 
-        var connectedLidar: RPLidarController?
         do {
-            try ExceptionCatcher.catchException {
-                connectedLidar = RPLidarController(ip: "192.168.11.1")
+            let connectedLidar = try RPLidarController(ip: RPLidarEndpoint.configuredHost)
+            guard isStarted else {
+                connectedLidar.disconnect()
+                return
             }
+            lidar = connectedLidar
+            print("RPLidar passthrough connected to \(connectedLidar.connectionIP):\(RPLidarEndpoint.servicePort)")
         } catch {
-            print("RPLidar connection failed: \(error.localizedDescription)")
-        }
-
-        guard let connectedLidar else {
+            print("RPLidar connection failed; retrying in \(Self.reconnectDelay) seconds: \(error.localizedDescription)")
             scheduleReconnectLocked()
-            return
         }
-        lidar = connectedLidar
-        print("RPLidar passthrough connected to 192.168.11.1:1445")
     }
 
     private func scheduleReconnectLocked() {
         dispatchPrecondition(condition: .onQueue(operationQueue))
-        guard isStarted, !reconnectScheduled else { return }
-        reconnectScheduled = true
-        operationQueue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self else { return }
-            self.reconnectScheduled = false
-            self.reconnectLocked()
+        guard isStarted else { return }
+        reconnectRetry.schedule(after: Self.reconnectDelay) { [weak self] in
+            self?.reconnectLocked()
         }
     }
 
@@ -302,6 +300,7 @@ final class RPLidarPassthroughServer {
             deliver(scan: snapshot)
         } catch {
             print("RPLidar scan passthrough failed: \(error.localizedDescription)")
+            lidar.disconnect()
             self.lidar = nil
             scheduleReconnectLocked()
         }
@@ -323,6 +322,7 @@ final class RPLidarPassthroughServer {
             deliver(map: snapshot)
         } catch {
             print("RPLidar map passthrough failed: \(error.localizedDescription)")
+            lidar.disconnect()
             self.lidar = nil
             scheduleReconnectLocked()
         }

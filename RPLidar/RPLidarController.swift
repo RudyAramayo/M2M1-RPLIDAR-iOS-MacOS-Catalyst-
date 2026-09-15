@@ -33,8 +33,7 @@ enum RPLidarControllerError: LocalizedError {
 }
 
 class RPLidarController: NSObject {
-    var connectionIP: String
-    var deviceManager: RPDeviceManager?
+    let connectionIP: String
     var rpSlamwarePlatformProtocol_object: RPSlamwarePlatformProtocol?
     
     var currentLocation: RPLocation?
@@ -45,12 +44,37 @@ class RPLidarController: NSObject {
     var currentCompositeMap: RPCompositeMap?
     private var relocalizationAction: RPMoveActionProtocol?
     
-    init(ip: String) {
-        connectionIP = ip
+    init(ip: String) throws {
+        connectionIP = RPLidarEndpoint(host: ip).host
         super.init()
-        deviceManager = RPDeviceManager.init(delegate: self)
-        deviceManager?.start(.BOTH)
-        rpSlamwarePlatformProtocol_object = deviceManager?.connect(connectionIP, withPort: 1445)
+        rpSlamwarePlatformProtocol_object = try Self.connect(to: connectionIP)
+    }
+
+    private static func connect(to ip: String) throws -> RPSlamwarePlatformProtocol {
+        let endpoint = RPLidarEndpoint(host: ip)
+        try endpoint.checkReachability()
+        // The device can disappear after the probe. The native bridge still
+        // converts SDK connection exceptions into an ordinary Swift error.
+        return try ExceptionCatcher.connect(toHost: endpoint.host, port: Int32(endpoint.port))
+    }
+
+    func disconnect() {
+        let platform = rpSlamwarePlatformProtocol_object
+        rpSlamwarePlatformProtocol_object = nil
+        relocalizationAction = nil
+        currentLocation = nil
+        currentPose = nil
+        currentLaserScan = nil
+        currentLaserPoints = nil
+        currentMap = nil
+        currentCompositeMap = nil
+        if let platform {
+            try? ExceptionCatcher.disconnectPlatform(platform)
+        }
+    }
+
+    deinit {
+        disconnect()
     }
     
     /// Clears the current map and returns Slamware to normal mapping mode.
@@ -355,12 +379,7 @@ class RPLidarController: NSObject {
                 candidate = platform
             } else {
                 do {
-                    try ExceptionCatcher.catchException {
-                        candidate = self.deviceManager?.connect(
-                            self.connectionIP,
-                            withPort: 1445
-                        )
-                    }
+                    candidate = try Self.connect(to: connectionIP)
                 } catch {
                     lastConnectionError = error
                 }
@@ -380,6 +399,10 @@ class RPLidarController: NSObject {
                         mapLocalization: false,
                         timeout: 2
                     )
+                    if let previous = lastResponsiveCandidate,
+                       previous !== candidate, previous !== platform {
+                        try? ExceptionCatcher.disconnectPlatform(previous)
+                    }
                     lastResponsiveCandidate = candidate
 
                     // A service restart normally starts with no map. If this
@@ -390,9 +413,15 @@ class RPLidarController: NSObject {
                     }
 
                     rpSlamwarePlatformProtocol_object = candidate
+                    if candidate !== platform {
+                        try? ExceptionCatcher.disconnectPlatform(platform)
+                    }
                     return candidate
                 } catch {
                     lastConnectionError = error
+                    if candidate !== platform, candidate !== lastResponsiveCandidate {
+                        try? ExceptionCatcher.disconnectPlatform(candidate)
+                    }
                 }
             }
 
@@ -404,6 +433,9 @@ class RPLidarController: NSObject {
             // its firmware still refuses the final clear, so normal polling
             // and the error-recovery mode restoration use a live connection.
             rpSlamwarePlatformProtocol_object = lastResponsiveCandidate
+            if lastResponsiveCandidate !== platform {
+                try? ExceptionCatcher.disconnectPlatform(platform)
+            }
         }
 
         throw RPLidarControllerError.operationFailed(
@@ -576,11 +608,6 @@ class RPLidarController: NSObject {
         do { try ExceptionCatcher.catchException { [weak self] in map = self?.rpSlamwarePlatformProtocol_object?.compositeMap() } } catch {}
         return map
     }
-    /// Returns the status of the RPLidar
-    var status: DiscoverStatus? {
-        deviceManager?.getStatus(.BOTH)
-    }
-    
     /// Returns the RPMap of the known area
     var getMap: RPMap? {
         var map: RPMap? = nil
@@ -973,25 +1000,4 @@ class RPLidarController: NSObject {
         }
         return currentLaserScan
     }
-}
-
-extension RPLidarController: RPDiscoveryDelegate {
-    func onStartDiscovery(_ discover: RPAbstractDiscover!) {
-        print("onStartDiscovery \(String(describing: discover))")
-    }
-    
-    func onStopDiscovery(_ discover: RPAbstractDiscover!) {
-        print("onStopDiscovery \(String(describing: discover))")
-    }
-    
-    func onDiscoveryStatusChanged(_ discover: RPAbstractDiscover!, with status: DiscoverStatus, withError error: String!) {
-        print("onDiscoveryStatusChanged \(String(describing: discover))\n status = \(status)\n error = \(String(describing: error))")
-    }
-    
-    func onDeviceFound(_ discover: RPAbstractDiscover!, with device: RPAbstractDevice!) {
-        
-        print("onDeviceFound \(String(describing: discover))\ndevice \(String(describing: device))")
-    }
-    
-    
 }
