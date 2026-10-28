@@ -35,6 +35,31 @@ code is always authoritative, and either **Replace Pairing…** or **Forget Loca
 Pairing** permanently disables environment bootstrap. An old Xcode
 launch-scheme value therefore cannot restore or overwrite a credential later.
 
+## Scan alignment and pose display
+
+The live map uses the SDK map origin, cell resolution, and scan-captured pose.
+Laser angles and yaw are counterclockwise radians from SLAM +X. The occupancy
+bitmap stays in that fixed map frame; only laser vectors and the cyan heading
+arrow use robot yaw. North rotation and scale calibration apply to all three
+layers together. The SDK's `samples/map2bmp/src/main.cpp` is the reference for
+raster row order and map metadata.
+
+The map displays X/Y/Z in metres and yaw/pitch/roll in degrees. These are local
+SLAM coordinates, not GPS coordinates or a magnetic compass bearing. A 2D mapper
+may report zero Z, pitch, and roll; the display preserves the supplied values.
+Missing or expired pose telemetry is shown as unavailable after two seconds.
+Cerebro relays accepted binary scans as controller-compatible display messages
+to authenticated operator sessions over QUIC; both local IPC and QUIC input
+routes support this. Full map rasters are not required for pose delivery.
+
+Validation (macOS):
+
+```sh
+swiftc RPLidar/RPLidarMapTransform.swift Tests/RPLidarMapTransformFixtureTests.swift -o /tmp/rplidar-map-tests
+/tmp/rplidar-map-tests
+python3 Tests/ROBMapZoomStaticTests.py
+```
+
 ## Map controls
 
 - **Save Map…** captures the current bitmap map and droid pose together and

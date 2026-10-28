@@ -58,6 +58,13 @@ struct RPLidarMapFrame {
             height: size.height
         )
     }
+
+    /// The displayed raster is already flipped to image rows (top to bottom),
+    /// as in the SDK's samples/map2bmp/src/main.cpp.
+    func worldPoint(forImageUnitPoint point: CGPoint) -> CGPoint {
+        CGPoint(x: origin.x + point.x * worldSize.width,
+                y: origin.y + (1 - point.y) * worldSize.height)
+    }
 }
 
 struct RPLidarPose2D {
@@ -68,6 +75,95 @@ struct RPLidarPose2D {
 struct RPLidarScanPoint {
     let distance: CGFloat
     let angle: CGFloat
+}
+
+/// One map-to-geographic transform for the bitmap, scan and heading. Slamware
+/// uses +X at yaw zero and counterclockwise radians, not compass bearings.
+/// Calibration rotates the entire SLAM frame clockwise on the geographic map.
+struct RPLidarGeographicTransform {
+    let pose: RPLidarPose2D
+    let clockwiseRotation: CGFloat
+    let scale: CGFloat
+
+    func offset(forWorldPoint point: CGPoint) -> CGPoint {
+        offset(forMapVector: CGPoint(x: point.x - pose.location.x,
+                                    y: point.y - pose.location.y))
+    }
+
+    func offset(forMapVector vector: CGPoint) -> CGPoint {
+        let c = cos(clockwiseRotation)
+        let s = sin(clockwiseRotation)
+        // x = east, y = north, in metres relative to ROB's geographic anchor.
+        return CGPoint(x: (c * vector.x + s * vector.y) * scale,
+                       y: (-s * vector.x + c * vector.y) * scale)
+    }
+
+    func offset(for scan: RPLidarScanPoint) -> CGPoint {
+        let angle = pose.yaw + scan.angle
+        return offset(forMapVector: CGPoint(x: cos(angle) * scan.distance,
+                                           y: sin(angle) * scan.distance))
+    }
+
+    var headingVector: CGPoint {
+        offset(forMapVector: CGPoint(x: cos(pose.yaw), y: sin(pose.yaw)))
+    }
+}
+
+@objc(ROBLidarPoseTelemetry)
+public final class ROBLidarPoseTelemetry: NSObject {
+    @objc public let x: Double
+    @objc public let y: Double
+    @objc public let z: Double
+    @objc public let yaw: Double
+    @objc public let pitch: Double
+    @objc public let roll: Double
+
+    public init?(x: Double, y: Double, z: Double, yaw: Double, pitch: Double, roll: Double) {
+        guard [x, y, z, yaw, pitch, roll].allSatisfy(\.isFinite) else { return nil }
+        self.x = x
+        self.y = y
+        self.z = z
+        self.yaw = yaw
+        self.pitch = pitch
+        self.roll = roll
+    }
+
+    var pose2D: RPLidarPose2D {
+        RPLidarPose2D(location: CGPoint(x: x, y: y), yaw: yaw)
+    }
+
+    @objc public var positionText: String {
+        String(format: "X: %.3f  Y: %.3f  Z: %.3f m", x, y, z)
+    }
+
+    @objc public var rotationText: String {
+        String(format: "Yaw: %.1f°  Pitch: %.1f°  Roll: %.1f°",
+               yaw * 180 / .pi, pitch * 180 / .pi, roll * 180 / .pi)
+    }
+}
+
+/// The controller-compatible archive carries metres and radians. Do not guess
+/// angle units from magnitude: a small degree angle is indistinguishable from
+/// radians, and a valid unwrapped radian yaw can exceed 2π.
+@objc(ROBLidarDisplayScan)
+public final class ROBLidarDisplayScan: NSObject {
+    @objc public let pose: ROBLidarPoseTelemetry
+    @objc public let points: [String]
+
+    @objc public init?(message: String) {
+        let lines = message.components(separatedBy: "\n")
+        guard lines.count >= 2 else { return nil }
+        let values = lines.prefix(2).flatMap { $0.components(separatedBy: ":") }
+        guard lines[0].components(separatedBy: ":").count == 3,
+              lines[1].components(separatedBy: ":").count == 3 else { return nil }
+        let numbers = values.compactMap(Double.init)
+        guard numbers.count == 6,
+              let pose = ROBLidarPoseTelemetry(x: numbers[0], y: numbers[1], z: numbers[2],
+                                               yaw: numbers[3], pitch: numbers[4], roll: numbers[5])
+        else { return nil }
+        self.pose = pose
+        self.points = Array(lines.dropFirst(2).filter { !$0.isEmpty })
+    }
 }
 
 struct RPLidarMapTransform {

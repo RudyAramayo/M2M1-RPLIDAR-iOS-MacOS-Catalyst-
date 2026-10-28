@@ -531,6 +531,7 @@ class RPLidarViewController: UIViewController {
                 DispatchQueue.main.async {
                     self.rpLidarImageView.image = nil
                     self.openStreetMapView.updateOccupancyMapImage(nil)
+                    self.openStreetMapView.updateRobotPose(nil)
                     self.openStreetMapView.updateLaserPoints([], headingRadians: 0)
                     self.rpLidarPolarView.mapFrame = nil
                     self.rpLidarPolarView.robotPose = nil
@@ -590,7 +591,7 @@ class RPLidarViewController: UIViewController {
                     let mapFrame = self.mapFrame(from: map)
                     self.openStreetMapView.updateOccupancyMapImage(
                         occupancyImage,
-                        worldSizeMeters: mapFrame?.worldSize
+                        mapFrame: mapFrame
                     )
                     self.rpLidarPolarView.mapFrame = mapFrame
                     self.rpLidarPolarView.robotPose = RPLidarPose2D(
@@ -1013,14 +1014,15 @@ extension RPLidarViewController: RPLidarPassthroughServerDelegate {
         rpLidarPolarView.laserPoints = scan.laserPoints
         rpLidarPolarView.setNeedsDisplay()
 
-        let yaw = scan.pose.map { Double($0.yaw()) } ?? 0
-        let headingRadians = abs(yaw) > Double.pi * 2
-            ? yaw * Double.pi / 180
-            : yaw
+        let displayPose = scan.pose.flatMap {
+            ROBLidarPoseTelemetry(x: Double($0.location.x), y: Double($0.location.y), z: Double($0.location.z),
+                                  yaw: Double($0.yaw()), pitch: Double($0.pitch()), roll: Double($0.roll()))
+        }
+        openStreetMapView.updateRobotPose(displayPose)
         let points = scan.laserPoints.map {
             String(format: "%.6f:%.6f", Double($0.distance), Double($0.angle))
         }
-        openStreetMapView.updateLaserPoints(points, headingRadians: headingRadians)
+        openStreetMapView.updateLaserPoints(points, headingRadians: displayPose?.yaw ?? 0)
     }
 
     func passthroughServer(
@@ -1039,7 +1041,7 @@ extension RPLidarViewController: RPLidarPassthroughServerDelegate {
         let mapFrame = mapFrame(from: map)
         openStreetMapView.updateOccupancyMapImage(
             occupancyImage,
-            worldSizeMeters: mapFrame?.worldSize
+            mapFrame: mapFrame
         )
         rpLidarPolarView.mapFrame = mapFrame
         rpLidarPolarView.setNeedsDisplay()

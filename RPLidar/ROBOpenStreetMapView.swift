@@ -363,6 +363,26 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
     private var hasCenteredOnRobot = false
     private var lidarReturnCount = 0
     private var hasOccupancyMap = false
+    private let poseStatusLabel = UILabel(frame: .zero)
+    private var poseExpiry: DispatchWorkItem?
+
+    @objc func updateRobotPose(_ pose: ROBLidarPoseTelemetry?) {
+        poseExpiry?.cancel()
+        lidarView.pose = pose
+        poseStatusLabel.text = pose.map { "SLAM pose • metres / degrees\n" + $0.positionText + "\n" + $0.rotationText }
+            ?? "SLAM pose unavailable • waiting for lidar"
+        poseStatusLabel.accessibilityIdentifier = "ROBLidarPoseTelemetry"
+        lidarView.setNeedsDisplay()
+        guard pose != nil else { return }
+        let expiry = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.updateRobotPose(nil)
+            self.updateLaserPoints([], headingRadians: 0)
+        }
+        poseExpiry = expiry
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: expiry)
+    }
+
     private(set) var overlayCalibration = ROBLidarOverlayCalibrationStore.load()
     private(set) var baseMapStyle = ROBLidarBaseMapStyleStore.load()
     private var baseTileOverlay: MKTileOverlay?
@@ -443,6 +463,17 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         scanStatusLabel.layer.masksToBounds = true
         addSubview(scanStatusLabel)
 
+        poseStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        poseStatusLabel.numberOfLines = 3
+        poseStatusLabel.textAlignment = .center
+        poseStatusLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        poseStatusLabel.textColor = .white
+        poseStatusLabel.backgroundColor = UIColor.black.withAlphaComponent(0.78)
+        poseStatusLabel.adjustsFontSizeToFitWidth = true
+        poseStatusLabel.minimumScaleFactor = 0.8
+        addSubview(poseStatusLabel)
+        updateRobotPose(nil)
+
         instructionLabel.translatesAutoresizingMaskIntoConstraints = false
         instructionLabel.text = "Long-press ROB's actual position • Tap destination • Pinch to zoom"
         instructionLabel.textAlignment = .center
@@ -509,6 +540,11 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
             scanStatusLabel.topAnchor.constraint(equalTo: searchButton.bottomAnchor, constant: 6),
             scanStatusLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.72),
             scanStatusLabel.heightAnchor.constraint(equalToConstant: 30),
+
+            poseStatusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            poseStatusLabel.topAnchor.constraint(equalTo: scanStatusLabel.bottomAnchor, constant: 5),
+            poseStatusLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.90),
+            poseStatusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 54),
 
             instructionLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             instructionLabel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -12),
@@ -894,11 +930,11 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
         lidarView.update(points: points, headingRadians: headingRadians)
     }
 
-    func updateOccupancyMapImage(_ image: UIImage?, worldSizeMeters: CGSize? = nil) {
+    func updateOccupancyMapImage(_ image: UIImage?, mapFrame: RPLidarMapFrame? = nil) {
         hasOccupancyMap = image != nil
         refreshScanStatus()
         lidarView.occupancyMapImage = image
-        lidarView.occupancyWorldSizeMeters = worldSizeMeters
+        lidarView.occupancyMapFrame = mapFrame
         lidarView.setNeedsDisplay()
     }
 
@@ -1125,17 +1161,13 @@ final class ROBOpenStreetMapView: UIView, MKMapViewDelegate, UIGestureRecognizer
 }
 
 private final class ROBLidarGeographicOverlayView: UIView {
-    struct Sample {
-        let distanceMeters: Double
-        let angleRadians: Double
-    }
-
     weak var mapView: MKMapView?
     var robotCoordinate: CLLocationCoordinate2D?
     var occupancyMapImage: UIImage?
-    var occupancyWorldSizeMeters: CGSize?
+    var occupancyMapFrame: RPLidarMapFrame?
+    var pose: ROBLidarPoseTelemetry?
     var calibration = ROBLidarOverlayCalibrationStore.load()
-    private var samples: [Sample] = []
+    private var samples: [RPLidarScanPoint] = []
     private var headingRadians: Double = 0
 
     override init(frame: CGRect) {
@@ -1155,15 +1187,9 @@ private final class ROBLidarGeographicOverlayView: UIView {
         samples = points.compactMap { point in
             let fields = point.split(separator: ":", omittingEmptySubsequences: false)
             guard fields.count >= 2,
-                  let distance = Double(fields[0]),
-                  let angle = Double(fields[1]),
-                  distance.isFinite,
-                  angle.isFinite,
-                  distance >= 0,
-                  distance <= 100 else {
-                return nil
-            }
-            return Sample(distanceMeters: distance, angleRadians: angle)
+                  let distance = Double(fields[0]), let angle = Double(fields[1]),
+                  distance.isFinite, angle.isFinite, distance > 0, distance <= 100 else { return nil }
+            return RPLidarScanPoint(distance: distance, angle: angle)
         }
         setNeedsDisplay()
     }
@@ -1171,41 +1197,37 @@ private final class ROBLidarGeographicOverlayView: UIView {
     override func draw(_ rect: CGRect) {
         guard let mapView,
               let robotCoordinate = drawingAnchorCoordinate(in: mapView),
-              let context = UIGraphicsGetCurrentContext() else {
-            return
-        }
-
+              let context = UIGraphicsGetCurrentContext() else { return }
+        let transform = RPLidarGeographicTransform(
+            pose: pose?.pose2D ?? RPLidarPose2D(location: .zero, yaw: headingRadians),
+            clockwiseRotation: calibration.northRotationRadians,
+            scale: calibration.scale
+        )
         let center = mapView.convert(robotCoordinate, toPointTo: self)
-        drawOccupancyMap(in: context, center: center, mapView: mapView, robotCoordinate: robotCoordinate)
+        func project(_ offset: CGPoint) -> CGPoint {
+            mapView.convert(offsetCoordinate(from: robotCoordinate,
+                                             eastMeters: offset.x, northMeters: offset.y), toPointTo: self)
+        }
+        drawOccupancyMap(in: context, transform: transform, project: project)
 
         context.saveGState()
         let scanColor = UIColor(red: 0.94, green: 0.66, blue: 0.25, alpha: 0.96)
         context.setFillColor(scanColor.cgColor)
         context.setShadow(offset: .zero, blur: 2.5, color: scanColor.cgColor)
         for sample in samples {
-            let theta = sample.angleRadians + headingRadians + calibration.northRotationRadians
-            let calibratedDistance = sample.distanceMeters * calibration.scale
-            let north = cos(theta) * calibratedDistance
-            let east = sin(theta) * calibratedDistance
-            let coordinate = offsetCoordinate(
-                from: robotCoordinate,
-                eastMeters: east,
-                northMeters: north
-            )
-            let point = mapView.convert(coordinate, toPointTo: self)
+            let point = project(transform.offset(for: sample))
             guard rect.insetBy(dx: -8, dy: -8).contains(point) else { continue }
             context.fillEllipse(in: CGRect(x: point.x - 2.2, y: point.y - 2.2, width: 4.4, height: 4.4))
         }
         context.restoreGState()
 
-        context.setFillColor(UIColor.white.cgColor)
-        context.fillEllipse(in: CGRect(x: center.x - 5, y: center.y - 5, width: 10, height: 10))
+        if pose != nil || !samples.isEmpty {
+            drawHeading(in: context, center: center, forward: project(transform.headingVector))
+        }
     }
 
     private func drawingAnchorCoordinate(in mapView: MKMapView) -> CLLocationCoordinate2D? {
-        if let robotCoordinate, CLLocationCoordinate2DIsValid(robotCoordinate) {
-            return robotCoordinate
-        }
+        if let robotCoordinate, CLLocationCoordinate2DIsValid(robotCoordinate) { return robotCoordinate }
         guard !samples.isEmpty || occupancyMapImage != nil else { return nil }
         let centerCoordinate = mapView.centerCoordinate
         return CLLocationCoordinate2DIsValid(centerCoordinate) ? centerCoordinate : nil
@@ -1213,56 +1235,64 @@ private final class ROBLidarGeographicOverlayView: UIView {
 
     private func drawOccupancyMap(
         in context: CGContext,
-        center: CGPoint,
-        mapView: MKMapView,
-        robotCoordinate: CLLocationCoordinate2D
+        transform: RPLidarGeographicTransform,
+        project: (CGPoint) -> CGPoint
     ) {
-        guard let occupancyMapImage else { return }
-        let fallbackSize = CGSize(width: 20, height: 20)
-        let worldSize = occupancyWorldSizeMeters ?? fallbackSize
-        let halfWidthMeters = worldSize.width * calibration.scale / 2
-        let halfHeightMeters = worldSize.height * calibration.scale / 2
-        guard halfWidthMeters.isFinite,
-              halfHeightMeters.isFinite,
-              halfWidthMeters > 0,
-              halfHeightMeters > 0 else { return }
-        let eastEdge = offsetCoordinate(
-            from: robotCoordinate,
-            eastMeters: halfWidthMeters,
-            northMeters: 0
-        )
-        let northEdge = offsetCoordinate(
-            from: robotCoordinate,
-            eastMeters: 0,
-            northMeters: halfHeightMeters
-        )
-        let eastPoint = mapView.convert(eastEdge, toPointTo: self)
-        let northPoint = mapView.convert(northEdge, toPointTo: self)
-        let halfWidth = abs(eastPoint.x - center.x)
-        let halfHeight = abs(northPoint.y - center.y)
-        guard halfWidth > 0.5, halfHeight > 0.5 else { return }
-
+        // A bitmap without origin/resolution cannot be aligned. Never invent a
+        // 20 m square or rotate an already world-aligned map by robot yaw.
+        guard let occupancyMapImage, let frame = occupancyMapFrame, pose != nil else { return }
+        func corner(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            project(transform.offset(forWorldPoint: frame.worldPoint(forImageUnitPoint: CGPoint(x: x, y: y))))
+        }
+        let topLeft = corner(0, 0)
+        let topRight = corner(1, 0)
+        let bottomLeft = corner(0, 1)
+        let mapping = CGAffineTransform(a: topRight.x - topLeft.x, b: topRight.y - topLeft.y,
+                                       c: bottomLeft.x - topLeft.x, d: bottomLeft.y - topLeft.y,
+                                       tx: topLeft.x, ty: topLeft.y)
+        guard [mapping.a, mapping.b, mapping.c, mapping.d, mapping.tx, mapping.ty].allSatisfy(\.isFinite)
+        else { return }
         context.saveGState()
-        context.translateBy(x: center.x, y: center.y)
-        context.rotate(by: CGFloat(headingRadians + calibration.northRotationRadians))
-        context.setAlpha(0.38)
-        occupancyMapImage.draw(
-            in: CGRect(x: -halfWidth, y: -halfHeight, width: halfWidth * 2, height: halfHeight * 2),
-            blendMode: .normal,
-            alpha: 0.75
-        )
+        context.concatenate(mapping)
+        context.interpolationQuality = .none
+        occupancyMapImage.draw(in: CGRect(x: 0, y: 0, width: 1, height: 1), blendMode: .normal, alpha: 0.40)
         context.restoreGState()
     }
 
-    private func offsetCoordinate(
-        from origin: CLLocationCoordinate2D,
-        eastMeters: Double,
-        northMeters: Double
-    ) -> CLLocationCoordinate2D {
+    private func drawHeading(in context: CGContext, center: CGPoint, forward: CGPoint) {
+        let dx = forward.x - center.x
+        let dy = forward.y - center.y
+        let length = hypot(dx, dy)
+        guard length.isFinite, length > 0.000_001 else { return }
+        let direction = CGPoint(x: dx / length, y: dy / length)
+        let tip = CGPoint(x: center.x + direction.x * 32, y: center.y + direction.y * 32)
+        let base = CGPoint(x: center.x + direction.x * 19, y: center.y + direction.y * 19)
+        context.saveGState()
+        context.setStrokeColor(UIColor.black.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(5)
+        context.move(to: center)
+        context.addLine(to: tip)
+        context.strokePath()
+        context.setStrokeColor(UIColor.systemCyan.cgColor)
+        context.setLineWidth(3)
+        context.move(to: center)
+        context.addLine(to: tip)
+        context.strokePath()
+        context.setFillColor(UIColor.systemCyan.cgColor)
+        context.move(to: tip)
+        context.addLine(to: CGPoint(x: base.x - direction.y * 7, y: base.y + direction.x * 7))
+        context.addLine(to: CGPoint(x: base.x + direction.y * 7, y: base.y - direction.x * 7))
+        context.closePath()
+        context.drawPath(using: .fillStroke)
+        context.setFillColor(UIColor.white.cgColor)
+        context.fillEllipse(in: CGRect(x: center.x - 5, y: center.y - 5, width: 10, height: 10))
+        context.restoreGState()
+    }
+
+    private func offsetCoordinate(from origin: CLLocationCoordinate2D, eastMeters: Double,
+                                  northMeters: Double) -> CLLocationCoordinate2D {
         let latitudeRadians = origin.latitude * .pi / 180
-        let latitude = origin.latitude + northMeters / 111_132.0
-        let longitudeScale = max(1.0, 111_320.0 * cos(latitudeRadians))
-        let longitude = origin.longitude + eastMeters / longitudeScale
-        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        return CLLocationCoordinate2D(latitude: origin.latitude + northMeters / 111_132.0,
+                                      longitude: origin.longitude + eastMeters / max(1, 111_320 * cos(latitudeRadians)))
     }
 }
