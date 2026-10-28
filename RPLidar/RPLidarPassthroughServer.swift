@@ -67,6 +67,10 @@ final class RPLidarPassthroughServer {
     private var localIPCReady = false
     private var publisherDeviceID: UUID?
     private var localIPCSharedSecret: Data?
+    private var mapEpoch = UUID()
+    private var mapRevision: UInt64 = 0
+    private var mapFragments: [ROBRoomMapFragment] = []
+    private var nextMapFragment = 0
     private var latestScan: RPLidarScanSnapshot?
     private var latestMap: RPLidarMapSnapshot?
     private var latestPose: RPPose?
@@ -147,6 +151,7 @@ final class RPLidarPassthroughServer {
         latestScan = nil
         latestMap = nil
         latestPose = nil
+        mapEpoch = UUID(); mapRevision = 0; mapFragments = []; nextMapFragment = 0
     }
 
     func detach(_ candidate: RPLidarPassthroughServerDelegate) {
@@ -319,6 +324,26 @@ final class RPLidarPassthroughServer {
             guard let map = try lidar.getCurrentMap() else { return }
             let snapshot = RPLidarMapSnapshot(map: map, compositeMap: compositeMap ?? nil)
             latestMap = snapshot
+            // Finish a snapshot before publishing the next revision. Missing
+            // chunks never become a usable map on the receiver.
+            if nextMapFragment >= mapFragments.count {
+                mapRevision += 1
+                let capturedAt = Date().timeIntervalSince1970 * 1000
+                let width = Int(map.dimension.width), height = Int(map.dimension.height)
+                mapFragments = []
+                if width > 0, height > 0, width <= 2048, height <= 2048,
+                   width * height <= 1_000_000, map.data.count == width * height {
+                    for offset in stride(from: 0, to: map.data.count, by: ROBRoomMapFragment.chunkBytes) {
+                        let fragment = ROBRoomMapFragment(epoch: mapEpoch, revision: mapRevision,
+                            capturedAtMilliseconds: capturedAt, width: width, height: height,
+                            resolutionX: Double(map.resolution.x), resolutionY: Double(map.resolution.y),
+                            originX: Double(map.origin.x), originY: Double(map.origin.y), offset: offset,
+                            cells: map.data.subdata(in: offset..<min(offset+ROBRoomMapFragment.chunkBytes,map.data.count)))
+                        if fragment.valid { mapFragments.append(fragment) }
+                    }
+                }
+                nextMapFragment = 0
+            }
             deliver(map: snapshot)
         } catch {
             print("RPLidar map passthrough failed: \(error.localizedDescription)")
@@ -337,7 +362,7 @@ final class RPLidarPassthroughServer {
               let sequence = telemetrySequenceStore.next(deviceID: deviceID) else {
             return
         }
-        let frame = ROBLidarScanFrame(
+        var frame = ROBLidarScanFrame(
             deviceID: deviceID,
             sequence: sequence,
             sentAtMilliseconds: Self.currentMilliseconds(),
@@ -349,6 +374,10 @@ final class RPLidarPassthroughServer {
             roll: Float(pose?.roll() ?? 0),
             points: points
         )
+        if nextMapFragment < mapFragments.count {
+            frame.mapFragment = mapFragments[nextMapFragment]
+            nextMapFragment += 1
+        }
         do {
             let data = try frame.encoded()
             if let localIPCSharedSecret,

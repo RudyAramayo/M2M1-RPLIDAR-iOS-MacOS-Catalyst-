@@ -33,6 +33,7 @@
 		D4D15925280217D200AFFA1E /* AutoNetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D15922280217D200AFFA1E /* AutoNetClient.swift */; };
 		D4D1592728021EB300AFFA1E /* RPLidarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D1592628021EB300AFFA1E /* RPLidarController.swift */; };
 		D4D159292802394B00AFFA1E /* RPLidarPolarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D159282802394A00AFFA1E /* RPLidarPolarView.swift */; };
+		AAC8B672254A70CE67A096F8 /* ROBRoomMapFragment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274226AF703F07BE71B2D379 /* ROBRoomMapFragment.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -117,6 +118,7 @@
 		D4D15922280217D200AFFA1E /* AutoNetClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AutoNetClient.swift; path = AutoNetClient/AutoNetClient.swift; sourceTree = "<group>"; };
 		D4D1592628021EB300AFFA1E /* RPLidarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarController.swift; sourceTree = "<group>"; };
 		D4D159282802394A00AFFA1E /* RPLidarPolarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPLidarPolarView.swift; sourceTree = "<group>"; };
+		274226AF703F07BE71B2D379 /* ROBRoomMapFragment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ROBRoomMapFragment.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -161,6 +163,7 @@
 			isa = PBXGroup;
 			children = (
 				A1D4A1013C5A000100000001 /* ROBLidarTelemetryProtocol.swift */,
+				274226AF703F07BE71B2D379 /* ROBRoomMapFragment.swift */,
 				A1D4A1033C5A000100000001 /* RPLidarMapTransform.swift */,
 				A1D4A1053C5A000100000001 /* RPLidarPassthroughServer.swift */,
 				A1D4A10B3C5A000100000001 /* RPLidarConnection.swift */,
@@ -311,6 +314,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1D4A1023C5A000100000001 /* ROBLidarTelemetryProtocol.swift in Sources */,
+				AAC8B672254A70CE67A096F8 /* ROBRoomMapFragment.swift in Sources */,
 				A1D4A1043C5A000100000001 /* RPLidarMapTransform.swift in Sources */,
 				A1D4A1063C5A000100000001 /* RPLidarPassthroughServer.swift in Sources */,
 				A1D4A10C3C5A000100000001 /* RPLidarConnection.swift in Sources */,

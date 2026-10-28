@@ -10,7 +10,7 @@ Cerebro. On the same Mac, scan bytes prefer a protected local Unix-domain IPC
 socket; authenticated TLS 1.3 QUIC remains connected and takes over
 automatically whenever local delivery is unavailable. The Cerebro certificate
 is pinned and a reciprocal HMAC pairing proof completes before publishing.
-Full occupancy/composite maps stay local and are never sent over ROBControl.
+The accumulated occupancy grid is sent in bounded scan-version-2 fragments for Cerebro room missions; composite map archives remain local. Update Cerebro and RPLidar together.
 There is no automatic plaintext or `_roboNet._tcp` fallback.
 
 1. In Cerebro, issue a new per-device credential with role
@@ -106,7 +106,7 @@ clang++ -fobjc-arc -fobjc-arc-exceptions -fblocks -std=c++17 -I Tests/Support -I
 /tmp/rplidar-exception-tests
 ```
 
-Wire scans use the fixed-layout `RLS1` format: a 68-byte pose/identity header
+Wire scans retain the `RLS1` binary header (version 1 without a map fragment, version 2 with one): a 68-byte pose/identity header
 plus four bytes per valid return (millimeters and angle). A 720-point scan is
 2,948 bytes and roughly 14.7 KB/s at 5 Hz before transport overhead. Both local
 IPC and QUIC allow one send in flight and retain only the newest pending scan,
@@ -192,3 +192,7 @@ the corresponding platform slice.
 Works for iOS as well. Will be used in my ROBOKit compilation of apps for the ROB droid.
 
 <img width="1316" height="835" alt="Screenshot 2025-07-30 at 8 02 28 PM" src="https://github.com/user-attachments/assets/32139d18-d4d5-4338-9a7e-6af155fedcb8" />
+
+### Accumulated room map for recycling missions
+
+The authenticated Cerebro telemetry feed now includes the SDK occupancy grid in bounded RLS2 scan fragments. Unknown, free and occupied cells retain their original signed values. Complete snapshots keep their native origin, metric resolution, revision and map-reset epoch; the satellite overlay is unrelated. Update Cerebro together with this publisher because older receivers accept only RLS1. Map publishing alone never enables robot movement.

@@ -574,6 +574,7 @@ class RPLidarViewController: UIViewController {
                     throw RPLidarControllerError.notConnected
                 }
 
+                self.passthroughServer.invalidateSnapshotsAfterMapReset()
                 try lidar.loadMapAndRecoverLocalization(map, pose: pose)
                 self.currentMap = map
                 self.currentCompositeMap = nil
